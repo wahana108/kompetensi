@@ -1,0 +1,182 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function userPath() {
+      return /databases/$(database)/documents/users/$(request.auth.uid);
+    }
+
+    function userExists() {
+      return isSignedIn() && exists(userPath());
+    }
+
+    function userData() {
+      return get(userPath()).data;
+    }
+
+    function hasRole(roles) {
+      return userExists() && userData().role in roles;
+    }
+
+    function isAdmin() {
+      return hasRole(['super_admin', 'admin']);
+    }
+
+    function isSuperAdmin() {
+      return hasRole(['super_admin']);
+    }
+
+    function isModerator() {
+      return hasRole(['moderator']);
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isSupervisorOf(employeeId) {
+      return isSignedIn()
+        && exists(/databases/$(database)/documents/users/$(employeeId))
+        && get(/databases/$(database)/documents/users/$(employeeId)).data.supervisorId == request.auth.uid;
+    }
+
+    match /users/{userId} {
+      allow read: if isOwner(userId) || isAdmin() || isModerator()
+        || (isSignedIn() && resource.data.supervisorId == request.auth.uid);
+      allow create: if isOwner(userId)
+        && request.resource.data.role == 'pegawai'
+        && request.resource.data.id == userId;
+      allow update: if isSuperAdmin()
+        || (
+          isAdmin()
+          && !request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasAny(['role', 'id'])
+        )
+        || (
+          isOwner(userId)
+          && !request.resource.data.diff(resource.data)
+            .affectedKeys()
+            .hasAny(['role', 'id', 'supervisorId'])
+        );
+      allow delete: if false;
+    }
+
+    match /unit_kerja/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /jabatan/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /pangkat/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /tusi/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /kompetensi/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /kompetensi_levels/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /standar_kompetensi/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /questions/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /questionnaires/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /system_parameters/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /assessment_periods/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin();
+    }
+
+    match /assessments/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.employeeId == request.auth.uid
+        || resource.data.assessorId == request.auth.uid
+        || isAdmin()
+        || isModerator()
+        || isSupervisorOf(resource.data.employeeId)
+      );
+      allow create: if isSignedIn() && (
+        (
+          request.resource.data.employeeId == request.auth.uid
+          && request.resource.data.assessorId == request.auth.uid
+          && request.resource.data.type == 'self'
+        )
+        || (
+          request.resource.data.assessorId == request.auth.uid
+          && request.resource.data.type == 'supervisor'
+          && isSupervisorOf(request.resource.data.employeeId)
+        )
+        || isAdmin()
+      );
+      allow update: if isSignedIn() && (
+        resource.data.assessorId == request.auth.uid
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /assessment_answers/{id} {
+      allow read: if isSignedIn();
+      allow create, update: if isSignedIn();
+      allow delete: if isAdmin();
+    }
+
+    match /training_proposals/{id} {
+      allow read: if isSignedIn() && (
+        resource.data.employeeId == request.auth.uid
+        || resource.data.proposedBy == request.auth.uid
+        || isAdmin()
+        || isModerator()
+      );
+      allow create: if isSignedIn() && (
+        request.resource.data.employeeId == request.auth.uid
+        || request.resource.data.proposedBy == request.auth.uid
+        || isAdmin()
+      );
+      allow update: if isSignedIn() && (
+        resource.data.proposedBy == request.auth.uid
+        || isAdmin()
+      );
+      allow delete: if isAdmin();
+    }
+
+    match /tna_recaps/{id} {
+      allow read: if isSignedIn();
+      allow write: if isAdmin() || isModerator();
+    }
+  }
+}
