@@ -83,21 +83,25 @@ export async function computeEmployeeCompetencyScores(
         ? (supervisorAssessment.dimensionScores[dimensi] ?? null)
         : null;
 
-    const actualLevel = roundTo1(
+    // Nilai mentah (belum dibulatkan) dipakai untuk keputusan butuhPelatihan.
+    // Pembulatan 1 desimal hanya diterapkan ke field yang ditampilkan/disimpan
+    // (actualLevel, gap, selfScore) — bukan ke perbandingan ambangnya, supaya
+    // gap seperti 0.95 (yang tampil sebagai 1.0 setelah dibulatkan) tetap
+    // dievaluasi sebagai "belum butuh pelatihan" sesuai nilai aslinya.
+    const rawActualLevel =
       supervisorScore !== null
         ? supervisorScore * SUPERVISOR_SCORE_WEIGHT + selfScore * SELF_SCORE_WEIGHT
-        : selfScore
-    );
-    const gap = roundTo1(requiredLevel - actualLevel);
+        : selfScore;
+    const rawGap = requiredLevel - rawActualLevel;
 
     results.push({
       kompetensiId,
       selfScore: roundTo1(selfScore),
       supervisorScore,
       requiredLevel,
-      actualLevel,
-      gap,
-      butuhPelatihan: gap >= GAP_TRAINING_THRESHOLD,
+      actualLevel: roundTo1(rawActualLevel),
+      gap: roundTo1(rawGap),
+      butuhPelatihan: rawGap >= GAP_TRAINING_THRESHOLD,
     });
   }
 
