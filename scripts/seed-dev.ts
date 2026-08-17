@@ -16,7 +16,7 @@ import { getFirestore } from "firebase-admin/firestore";
 
 const DEMO_PROJECT_ID = "demo-tna-kompetensi";
 const LOCAL_HOST_PATTERN = /^(127\.0\.0\.1|localhost)(:\d+)?$/;
-const SEED_PASSWORD = "Seed#1234";
+const SEED_PASSWORD = "password123";
 
 function assertEmulatorTarget(): void {
   process.env.FIRESTORE_EMULATOR_HOST ??= "127.0.0.1:8080";

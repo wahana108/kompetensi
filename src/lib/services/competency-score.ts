@@ -96,11 +96,11 @@ export async function computeEmployeeCompetencyScores(
 
     results.push({
       kompetensiId,
-      selfScore: roundTo1(selfScore),
+      selfScore: roundTo2(selfScore),
       supervisorScore,
       requiredLevel,
-      actualLevel: roundTo1(rawActualLevel),
-      gap: roundTo1(rawGap),
+      actualLevel: roundTo2(rawActualLevel),
+      gap: roundTo2(rawGap),
       butuhPelatihan: rawGap >= GAP_TRAINING_THRESHOLD,
     });
   }
@@ -139,6 +139,9 @@ function average(values: number[]): number {
   return values.reduce((sum, value) => sum + value, 0) / values.length;
 }
 
-function roundTo1(value: number): number {
-  return Math.round(value * 10) / 10;
+// 2 desimal — supaya nilai seperti gap 0.95 (dekat ambang) tidak menyatu
+// secara visual dengan 1.00 saat ditampilkan di UI. Murni presisi tampilan;
+// butuhPelatihan di atas tetap memakai rawGap yang sama sekali belum dibulatkan.
+function roundTo2(value: number): number {
+  return Math.round(value * 100) / 100;
 }

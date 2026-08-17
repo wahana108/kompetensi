@@ -108,8 +108,9 @@ export default function KompetensiListPage() {
           <div>
             <CardTitle>Daftar Kompetensi</CardTitle>
             <CardDescription>
-              Standar kompetensi per dimensi. Relasi ke jabatan dan bank soal
-              belum dihubungkan.
+              Standar kompetensi per dimensi. Terhubung ke jabatan lewat
+              Standar Kompetensi, dan ke bank soal lewat referensi kompetensi
+              pada tiap soal.
             </CardDescription>
           </div>
           <Link href={ADMIN_ROUTES.kompetensiNew} className={buttonVariants()}>

@@ -100,11 +100,28 @@ export function readFirebaseAdminConfig(): FirebaseAdminConfig | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * Default aman: di luar production build (`next build`/`next start`), SELALU
+ * pakai emulator kecuali secara eksplisit dimatikan lewat
+ * NEXT_PUBLIC_USE_FIREBASE_EMULATOR=false. Ini mencegah dev/local diam-diam
+ * terhubung ke Firebase produksi hanya karena flag lupa di-set — sebelumnya
+ * kalau NEXT_PUBLIC_FIREBASE_* berisi config produksi asli dan flag ini lupa
+ * di-set true, app akan memakai config produksi itu tanpa pernah menyambung
+ * ke emulator.
+ */
 export function shouldUseFirebaseEmulator(): boolean {
-  return (
+  if (process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "false") {
+    return false;
+  }
+
+  if (
     process.env.NEXT_PUBLIC_USE_FIREBASE_EMULATOR === "true" ||
     process.env.FIREBASE_ADMIN_USE_EMULATOR === "true"
-  );
+  ) {
+    return true;
+  }
+
+  return process.env.NODE_ENV !== "production";
 }
 
 export const EMULATOR_HOSTS = {

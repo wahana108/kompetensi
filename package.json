@@ -9,7 +9,9 @@
     "lint": "eslint",
     "emulators": "firebase emulators:start --only auth,firestore,ui --project demo-tna-kompetensi --import=./emulator-data --export-on-exit=./emulator-data",
     "emulators:all": "firebase emulators:start --only auth,firestore,functions,ui --project demo-tna-kompetensi --import=./emulator-data --export-on-exit=./emulator-data",
-    "seed:dev": "npx tsx scripts/seed-dev.ts"
+    "emu": "firebase emulators:start --only auth,firestore,ui --import=./emulator-data --export-on-exit=./emulator-data",
+    "seed:dev": "npx tsx scripts/seed-dev.ts",
+    "seed": "npx tsx scripts/seed-dev.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

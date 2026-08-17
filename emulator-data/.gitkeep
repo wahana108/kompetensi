@@ -1,0 +1,2 @@
+# Folder ini digunakan untuk menyimpan dump persistensi Firebase Emulator (Auth, Firestore)
+# Folder ini di-ignore oleh git melalui .gitignore

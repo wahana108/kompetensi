@@ -15,7 +15,9 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useAssessmentPeriodList } from "@/hooks/use-assessment-period";
+import { useEmployeeCompetencyScores } from "@/hooks/use-competency-score";
 import { useJabatanList } from "@/hooks/use-jabatan";
+import { useKompetensiList } from "@/hooks/use-kompetensi";
 import { usePenggunaList } from "@/hooks/use-pengguna";
 import { useTnaEmployeeDetails } from "@/hooks/use-tna";
 import { useUnitKerjaList } from "@/hooks/use-unit-kerja";
@@ -52,7 +54,9 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { getKompetensiDimensiLabel } from "@/lib/services/kompetensi";
 import { generateTnaRecap, mapTnaError, type TnaEmployeeDetail } from "@/lib/services/tna";
+import { cn } from "@/lib/utils";
 import type { Jabatan, UnitKerja, UserProfile } from "@/types";
 
 type StatusFilter =
@@ -378,6 +382,7 @@ export default function TnaDetailPage({
       {selectedDetail ? (
         <EmployeeDetailDialog
           item={selectedDetail}
+          periodId={periodeId}
           units={units.units}
           jabatan={jabatan.items}
           users={allUsers.items}
@@ -544,6 +549,7 @@ function EmployeeTnaRow({
 
 function EmployeeDetailDialog({
   item,
+  periodId,
   units,
   jabatan,
   users,
@@ -551,6 +557,7 @@ function EmployeeDetailDialog({
   onOpenChange,
 }: {
   item: TnaEmployeeDetail;
+  periodId: string;
   units: UnitKerja[];
   jabatan: Jabatan[];
   users: UserProfile[];
@@ -668,10 +675,19 @@ function EmployeeDetailDialog({
           )}
         </div>
 
+        {/* Analisis Gap Kompetensi (hasil hitung sistem) */}
+        <CompetencyGapSection periodId={periodId} employee={item.employee} />
+
         {/* Usulan Pelatihan */}
         <div className="space-y-1.5 text-xs">
-          <p className="font-semibold text-foreground">
-            Usulan Pelatihan / Rekomendasi Atasan
+          <div className="flex items-center justify-between gap-2">
+            <p className="font-semibold text-foreground">Usulan Pelatihan</p>
+            <Badge variant="outline" className="text-[10px] font-normal text-muted-foreground">
+              Input manual atasan
+            </Badge>
+          </div>
+          <p className="text-muted-foreground">
+            Teks bebas yang ditulis atasan saat menilai — bukan hasil hitung sistem.
           </p>
           <div className="rounded-md border p-3 bg-muted/20">
             {note ? (
@@ -685,6 +701,104 @@ function EmployeeDetailDialog({
         </div>
       </DialogContent>
     </Dialog>
+  );
+}
+
+function CompetencyGapSection({
+  periodId,
+  employee,
+}: {
+  periodId: string;
+  employee: UserProfile;
+}) {
+  const { items, loading, error } = useEmployeeCompetencyScores(periodId, employee);
+  const kompetensi = useKompetensiList();
+
+  const kompetensiById = useMemo(
+    () => new Map(kompetensi.items.map((entry) => [entry.id, entry])),
+    [kompetensi.items]
+  );
+
+  const sorted = useMemo(
+    () => [...items].sort((a, b) => (b.gap ?? 0) - (a.gap ?? 0)),
+    [items]
+  );
+
+  const busy = loading || kompetensi.loading;
+
+  return (
+    <div className="space-y-1.5 text-xs">
+      <p className="font-semibold text-foreground">Analisis Gap Kompetensi</p>
+      {busy ? (
+        <div className="rounded-md border p-3 text-center text-muted-foreground">
+          Menghitung gap kompetensi...
+        </div>
+      ) : error ? (
+        <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-destructive">
+          {error}
+        </p>
+      ) : sorted.length === 0 ? (
+        <div className="rounded-md border p-3 text-center text-muted-foreground">
+          Belum bisa dianalisis: pegawai belum menjawab soal skala (likert)
+          untuk kompetensi yang ada di Standar Kompetensi jabatannya, atau
+          jabatannya belum punya Standar Kompetensi.
+        </div>
+      ) : (
+        <div className="overflow-x-auto rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Kompetensi</TableHead>
+                <TableHead>Dimensi</TableHead>
+                <TableHead className="text-center">Standar</TableHead>
+                <TableHead className="text-center">Skor Tercapai</TableHead>
+                <TableHead className="text-center">Gap</TableHead>
+                <TableHead className="text-center">Butuh Pelatihan</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((score) => {
+                const entry = kompetensiById.get(score.kompetensiId);
+
+                return (
+                  <TableRow
+                    key={score.kompetensiId}
+                    className={cn(
+                      score.butuhPelatihan && "bg-destructive/10 dark:bg-destructive/15"
+                    )}
+                  >
+                    <TableCell className="font-medium text-foreground">
+                      {entry?.name ?? score.kompetensiId}
+                    </TableCell>
+                    <TableCell>
+                      {entry ? getKompetensiDimensiLabel(entry.dimensi) : "—"}
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums">
+                      {score.requiredLevel}
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums">
+                      {(score.actualLevel ?? 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-center tabular-nums font-semibold">
+                      {(score.gap ?? 0).toFixed(2)}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {score.butuhPelatihan ? (
+                        <Badge variant="destructive">Ya</Badge>
+                      ) : (
+                        <Badge variant="outline" className="text-muted-foreground">
+                          Tidak
+                        </Badge>
+                      )}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
   );
 }
 
