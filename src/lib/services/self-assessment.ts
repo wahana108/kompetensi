@@ -308,14 +308,26 @@ export async function getSelfAssessment(
   employeeId: string
 ): Promise<Assessment | null> {
   const db = requireDb();
-  const snapshot = await getDoc(
-    doc(db, COLLECTIONS.assessments, selfAssessmentId(periodId, employeeId))
-  );
-  if (!snapshot.exists()) {
-    return null;
-  }
+  try {
+    const snapshot = await getDoc(
+      doc(db, COLLECTIONS.assessments, selfAssessmentId(periodId, employeeId))
+    );
+    if (!snapshot.exists()) {
+      return null;
+    }
 
-  return mapAssessment(snapshot.id, snapshot.data());
+    return mapAssessment(snapshot.id, snapshot.data());
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      (error as { code: string }).code === "permission-denied"
+    ) {
+      return null;
+    }
+    throw error;
+  }
 }
 
 export async function getOrCreateSelfAssessment(
@@ -344,10 +356,10 @@ export async function getOrCreateSelfAssessment(
     type: "self",
     status: "draft",
     assignment: {
-      unitKerjaId: profile.unitKerjaId,
-      jabatanId: profile.jabatanId,
-      pangkatId: profile.pangkatId,
-      tusiIds: profile.tusiIds,
+      unitKerjaId: profile.unitKerjaId ?? null,
+      jabatanId: profile.jabatanId ?? null,
+      pangkatId: profile.pangkatId ?? null,
+      tusiIds: Array.isArray(profile.tusiIds) ? profile.tusiIds : [],
       capturedAt: now,
     },
     overallScore: null,
@@ -364,6 +376,7 @@ export async function getOrCreateSelfAssessment(
   await setDoc(doc(db, COLLECTIONS.assessments, id), record);
   return record;
 }
+
 
 export async function listAssessmentAnswers(
   assessmentId: string

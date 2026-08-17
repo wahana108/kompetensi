@@ -5,6 +5,7 @@ import {
   CalendarDays,
   CircleHelp,
   ClipboardList,
+  FileSpreadsheet,
   Gauge,
   LayoutDashboard,
   Medal,
@@ -40,6 +41,8 @@ export const ADMIN_ROUTES = {
   periodeEdit: (id: string) => `/admin/periode/${id}`,
   pengguna: "/admin/pengguna",
   penggunaEdit: (id: string) => `/admin/pengguna/${id}`,
+  tna: "/admin/tna",
+  tnaDetail: (id: string) => `/admin/tna/${id}`,
 } as const;
 
 export type AdminNavLink = {
@@ -121,6 +124,11 @@ export const ADMIN_NAV: AdminNavItem[] = [
         href: ADMIN_ROUTES.periode,
         label: "Periode",
         icon: CalendarDays,
+      },
+      {
+        href: ADMIN_ROUTES.tna,
+        label: "Rekap TNA",
+        icon: FileSpreadsheet,
       },
     ],
   },
@@ -327,5 +335,20 @@ export function getAdminPageMeta(pathname: string): {
     };
   }
 
+  if (pathname === ADMIN_ROUTES.tna) {
+    return {
+      title: "Rekap TNA",
+      description: "Ringkasan penilaian dan usulan pelatihan per periode",
+    };
+  }
+
+  if (pathname.startsWith(`${ADMIN_ROUTES.tna}/`)) {
+    return {
+      title: "Detail Rekap TNA",
+      description: "Daftar penilaian pegawai dan usulan pelatihan dari atasan",
+    };
+  }
+
   return { title: "Admin" };
 }
+

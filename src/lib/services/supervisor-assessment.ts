@@ -115,19 +115,31 @@ export async function getSupervisorAssessment(
   supervisorId: string
 ): Promise<Assessment | null> {
   const db = requireDb();
-  const snapshot = await getDoc(
-    doc(
-      db,
-      COLLECTIONS.assessments,
-      supervisorAssessmentId(periodId, employeeId, supervisorId)
-    )
-  );
+  try {
+    const snapshot = await getDoc(
+      doc(
+        db,
+        COLLECTIONS.assessments,
+        supervisorAssessmentId(periodId, employeeId, supervisorId)
+      )
+    );
 
-  if (!snapshot.exists()) {
-    return null;
+    if (!snapshot.exists()) {
+      return null;
+    }
+
+    return mapSupervisorDoc(snapshot.id, snapshot.data());
+  } catch (error) {
+    if (
+      typeof error === "object" &&
+      error &&
+      "code" in error &&
+      (error as { code: string }).code === "permission-denied"
+    ) {
+      return null;
+    }
+    throw error;
   }
-
-  return mapSupervisorDoc(snapshot.id, snapshot.data());
 }
 
 export async function saveSupervisorAssessment(input: {

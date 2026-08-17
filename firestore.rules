@@ -123,7 +123,8 @@ service cloud.firestore {
 
     match /assessments/{id} {
       allow read: if isSignedIn() && (
-        resource.data.employeeId == request.auth.uid
+        resource == null
+        || resource.data.employeeId == request.auth.uid
         || resource.data.assessorId == request.auth.uid
         || isAdmin()
         || isModerator()
@@ -157,7 +158,8 @@ service cloud.firestore {
 
     match /training_proposals/{id} {
       allow read: if isSignedIn() && (
-        resource.data.employeeId == request.auth.uid
+        resource == null
+        || resource.data.employeeId == request.auth.uid
         || resource.data.proposedBy == request.auth.uid
         || isAdmin()
         || isModerator()

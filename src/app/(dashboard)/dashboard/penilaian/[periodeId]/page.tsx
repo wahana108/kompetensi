@@ -97,7 +97,7 @@ export default function PenilaianFormPage() {
         ]);
 
         const tusiNames = tusiItems
-          .filter((item) => user.tusiIds.includes(item.id))
+          .filter((item) => tusiIds.includes(item.id))
           .map((item) => item.name);
 
         if (!cancelled) {

@@ -1,7 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { Briefcase, Building2, CalendarDays, CircleHelp, ClipboardList, Gauge, Medal, Plus, Target, Users } from "lucide-react";
+import {
+  Briefcase,
+  Building2,
+  CalendarDays,
+  CircleHelp,
+  ClipboardList,
+  FileSpreadsheet,
+  Gauge,
+  Medal,
+  Plus,
+  Target,
+  Users,
+} from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 import { useAssessmentPeriodList } from "@/hooks/use-assessment-period";
 import { useJabatanList } from "@/hooks/use-jabatan";
@@ -213,17 +225,14 @@ export default function AdminDashboardPage() {
           }
           listHref={ADMIN_ROUTES.pengguna}
         />
+        <ModuleCard
+          icon={FileSpreadsheet}
+          title="Rekap TNA"
+          description="Hasil penilaian pegawai & usulan pelatihan."
+          countLabel="Buka rekap per periode"
+          listHref={ADMIN_ROUTES.tna}
+        />
       </div>
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Modul berikutnya</CardTitle>
-          <CardDescription>
-            Filter soal berdasarkan TUSI pegawai, penilaian atasan, dan rekap
-            TNA belum dibuat.
-          </CardDescription>
-        </CardHeader>
-      </Card>
     </div>
   );
 }

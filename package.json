@@ -7,8 +7,8 @@
     "build": "next build --turbopack",
     "start": "next start",
     "lint": "eslint",
-    "emulators": "firebase emulators:start --only auth,firestore,ui --project demo-tna-kompetensi",
-    "emulators:all": "firebase emulators:start --only auth,firestore,functions,ui --project demo-tna-kompetensi"
+    "emulators": "firebase emulators:start --only auth,firestore,ui --project demo-tna-kompetensi --import=./emulator-data --export-on-exit=./emulator-data",
+    "emulators:all": "firebase emulators:start --only auth,firestore,functions,ui --project demo-tna-kompetensi --import=./emulator-data --export-on-exit=./emulator-data"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -108,4 +108,6 @@ Jangan ubah `role` dari client. Firestore rules menolak user mengubah role sendi
 - **Port sudah dipakai** — hentikan proses di 4000/8080/9099, atau ubah port di `firebase.json` dan `.env.local` secara bersamaan.
 - **Login bilang Firebase belum dikonfigurasi** — `.env.local` belum ada / flag emulator bukan `true`. Restart `npm run dev`.
 - **Request ke `googleapis` / project production** — emulator tidak tersambung. Cek flag env dan pastikan `npm run emulators` hidup sebelum buka browser.
-- **Data hilang setelah emulator di-stop** — normal. Emulator tidak menyimpan data kecuali memakai `--export-on-exit` (belum diaktifkan).
+- **Data hilang setelah emulator di-stop** — Sekarang data otomatis tersimpan di folder `./emulator-data` saat emulator dimatikan (Ctrl + C) dan otomatis dimuat kembali saat emulator dijalankan dengan `npm run emulators`.
+
+

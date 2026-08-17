@@ -1,6 +1,6 @@
 # Konteks Project Saat Ini
 
-**Update Terakhir**: 16 Agustus 2026
+**Update Terakhir**: 17 Agustus 2026
 
 ## Status Saat Ini
 - Fondasi Next.js 15 + shadcn/ui + data model + Auth/Role sudah ada.
@@ -10,8 +10,8 @@
 - `.env.local` sudah diisi nilai dummy emulator (`demo-tna-kompetensi`).
 - Panduan: `docs/SETUP-EMULATOR.md`.
 - **Periode Penilaian, Self Assessment, pengelolaan Pengguna, dan Penilaian Atasan sudah ada.**
-- Rekap TNA / usulan pelatihan **belum** dibuat.
-- `tsc --noEmit` dan `npm run lint` lulus setelah fondasi Penilaian Atasan.
+- **Modul Rekap TNA & Usulan Pelatihan sudah selesai dibuat** (`/admin/tna` dan `/admin/tna/[periodeId]`).
+- `tsc --noEmit` dan `npm run lint` lulus 100% tanpa error.
 - Emulator sudah diverifikasi start di mesin ini (Java 21): Auth `:9099`, Firestore `:8080`, UI `:4000` merespons HTTP 200.
 
 Baca dokumentasi dari:
@@ -44,7 +44,7 @@ docs/SETUP-EMULATOR.md
 
 Alur Auth tidak berubah: login → `ensureUserProfile()` → `users/{uid}` role `pegawai` → redirect `/dashboard` atau `/admin`.
 
-## Admin Panel + Master Data — file terkait
+## Admin Panel + Master Data + TNA — file terkait
 ```
 src/app/(admin)/layout.tsx                 # AuthGate area="admin"
 src/app/(admin)/admin/layout.tsx           # AdminShell (sidebar + header)
@@ -58,6 +58,8 @@ src/app/(admin)/admin/kompetensi/**
 src/app/(admin)/admin/soal/**
 src/app/(admin)/admin/periode/**
 src/app/(admin)/admin/pengguna/**
+src/app/(admin)/admin/tna/page.tsx         # Daftar rekap TNA per periode
+src/app/(admin)/admin/tna/[periodeId]/page.tsx # Detail rekap TNA pegawai + usulan diklat
 src/app/(dashboard)/dashboard/penilaian/**
 src/app/(dashboard)/dashboard/penilaian-atasan/**
 src/components/admin/admin-shell.tsx
@@ -86,6 +88,7 @@ src/lib/services/assessment-period.ts
 src/lib/services/self-assessment.ts
 src/lib/services/supervisor-assessment.ts
 src/lib/services/pengguna.ts
+src/lib/services/tna.ts
 src/lib/auth/user-profile.ts
 src/hooks/use-unit-kerja.ts
 src/hooks/use-jabatan.ts
@@ -97,10 +100,11 @@ src/hooks/use-question.ts
 src/hooks/use-assessment-period.ts
 src/hooks/use-pengguna.ts
 src/hooks/use-subordinates.ts
+src/hooks/use-tna.ts
 ```
 
 Route:
-- `/admin` — dashboard + ringkasan Unit Kerja / Jabatan / Pangkat / TUSI
+- `/admin` — dashboard + ringkasan master data & Rekap TNA
 - `/admin/unit-kerja` — daftar hierarkis (indent per level)
 - `/admin/unit-kerja/baru?parentId=` — tambah (opsional pra-pilih induk)
 - `/admin/unit-kerja/[id]` — edit
@@ -112,6 +116,8 @@ Route:
 - `/admin/soal`, `/admin/soal/baru?kompetensiId=&tusiId=`, `/admin/soal/[id]`
 - `/admin/periode`, `/admin/periode/baru`, `/admin/periode/[id]`
 - `/admin/pengguna`, `/admin/pengguna/[id]`
+- `/admin/tna` — daftar ringkasan Rekap TNA per periode + tombol generate/perbarui
+- `/admin/tna/[periodeId]` — detail evaluasi pegawai, skor 3 dimensi, rekomendasi atasan, filter unit & status, modal detail
 - `/dashboard` — beranda pegawai
 - `/dashboard/penilaian` — daftar periode
 - `/dashboard/penilaian/[periodeId]` — isi / lihat self assessment
@@ -121,7 +127,7 @@ Route:
 Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 1. Middleware cookie role (`/admin` → `/dashboard` jika bukan admin)
 2. `AuthGate` `area="admin"` (`canAccessAdmin`)
-3. Firestore rules: master data + `assessment_periods` write hanya `isAdmin()`. Update `users.role` hanya `super_admin`. Admin boleh mengubah penempatan/atasan/TUSI tanpa menyentuh `role`. Pegawai boleh create/update `assessments` milik sendiri (`type: self`) dan `assessment_answers`. Atasan boleh membaca user bawahan (`supervisorId == uid`), membaca self assessment bawahan, serta create/update penilaian atasan (`type: supervisor`, `assessorId == uid`).
+3. Firestore rules: master data + `assessment_periods` + `tna_recaps` + `training_proposals` write hanya `isAdmin()`. Update `users.role` hanya `super_admin`. Admin boleh mengubah penempatan/atasan/TUSI tanpa menyentuh `role`. Pegawai boleh create/update `assessments` milik sendiri (`type: self`) dan `assessment_answers`. Atasan boleh membaca user bawahan (`supervisorId == uid`), membaca self assessment bawahan, serta create/update penilaian atasan (`type: supervisor`, `assessorId == uid`).
 
 ## Keputusan penting
 1. Project id emulator: `demo-tna-kompetensi` (selaras `.firebaserc`).
@@ -146,7 +152,16 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 20. **Periode Penilaian** (`assessment_periods`): `name`, `year`, `startsAt`, `endsAt` (tanggal `YYYY-MM-DD`), `status` (`draft` / `active` / `closed` = selesai). Nama unik per tahun. **Hanya satu periode `active`**. Mengaktifkan satu periode mengembalikan periode aktif lain ke `draft`. Pegawai hanya bisa mengisi jika `active` dan hari ini di antara tanggal mulai–selesai.
 21. **Self Assessment**: ID deterministik `self_{periodId}_{uid}`. Jawaban ID `{assessmentId}_{questionId}`. Soal dipilih fleksibel: (1) soal `tusiId` ∈ `user.tusiIds`, (2) jika < 5 soal, ditambah soal kompetensi yang tercatat di TUSI user (`tusi.kompetensiIds`), (3) lalu soal umum (tanpa TUSI/kompetensi), (4) jika tetap kosong, semua soal aktif. Soal yang sudah dijawab tetap ditampilkan saat form dibuka lagi. Jawaban disimpan per soal. Kirim mengunci assessment (`submitted`). Form menampilkan periode, unit kerja, TUSI, dan jumlah soal.
 22. **Pengguna** (`users`): admin melihat daftar + edit penempatan. Field diubah: `role` (hanya Super Admin), `unitKerjaId`, `jabatanId`, `pangkatId`, `supervisorId`, `tusiIds`. Nama/email read-only. Atasan dicegah siklus (tidak boleh diri sendiri atau bawahan). Super Admin terakhir tidak boleh diturunkan. `tusiIds` ditambahkan ke `UserProfile` (sebelumnya hanya ada di snapshot assessment).
-23. **Penilaian Atasan** masih sederhana: satu dokumen `assessments` terpisah, ID deterministik `sup_{periodId}_{employeeId}_{supervisorId}`. Daftar `/dashboard/penilaian-atasan` hanya menampilkan bawahan yang sudah punya self assessment di periode aktif, dengan status belum dinilai / sudah dinilai (`supervisor.status === submitted`). Form menampilkan self assessment read-only, lalu 3 skor dimensi (Pengetahuan / Keterampilan / Sikap Perilaku) memakai Level Kompetensi global, plus textarea rekomendasi. Tombol Simpan draft dan Kirim. Setelah dikirim, dokumen terkunci. `overallScore` = rata-rata 3 dimensi (1 desimal). Menu sidebar "Penilaian Atasan" hanya muncul jika `listSubordinates(uid)` tidak kosong. Rekap TNA belum dibuat.
+23. **Penilaian Atasan**: satu dokumen `assessments` terpisah, ID deterministik `sup_{periodId}_{employeeId}_{supervisorId}`. Daftar `/dashboard/penilaian-atasan` menampilkan bawahan yang sudah punya self assessment di periode aktif. Form menampilkan self assessment read-only, lalu 3 skor dimensi (Pengetahuan / Keterampilan / Sikap Perilaku) memakai Level Kompetensi global, plus textarea rekomendasi usulan pelatihan (free text). Tombol Simpan draft dan Kirim. Setelah dikirim, dokumen terkunci. `overallScore` = rata-rata 3 dimensi (1 desimal). Menu sidebar "Penilaian Atasan" hanya muncul jika `listSubordinates(uid)` tidak kosong.
+24. **Rekap TNA & Usulan Pelatihan**: 
+    - Generate Rekap TNA dilakukan **secara manual oleh Admin** (tombol "Generate / Perbarui" di `/admin/tna` dan `/admin/tna/[periodeId]`), bukan otomatis background job.
+    - Usulan pelatihan dari atasan bersifat **free text** yang disimpan pada `training_proposals` (`id: prop_{periodId}_{employeeId}`) saat tombol generate ditekan.
+    - Rekapitulasi per unit kerja diagregasi ke koleksi `tna_recaps` (`id: recap_{periodId}_{unitId}`) dengan menghitung gap rata-rata terhadap target skala 5.0 dan merangkum daftar rekomendasi pelatihan unit kerja terkait.
+    - Halaman detail `/admin/tna/[periodeId]` menyajikan daftar lengkap pegawai, filter unit kerja, filter status (Lengkap, Belum Self, Belum Atasan, Ada Usulan), skor dimensi 3 pilar, ringkasan rekomendasi atasan, dan dialog detail per pegawai.
+25. **Auto-Create Draft Self Assessment & Otentikasi**:
+    - Perbaikan `firestore.rules` pada koleksi `/assessments/{id}` dengan menambahkan pengecekan `resource == null` agar pemanggilan `getDoc` pada dokumen yang belum dibuat tidak memicu evaluasi properti `resource.data` (yang sebelumnya menghasilkan error `permission-denied`).
+    - Fungsi `getOrCreateSelfAssessment(period, profile)` secara otomatis membuat dokumen draft (`status: draft`, `type: self`, `employeeId: uid`, `assessorId: uid`) saat pegawai pertama kali menekan 'Isi Penilaian' pada periode aktif, menyematkan snapshot penempatan/TUSI, dan langsung menampilkan kuesioner berbasis TUSI yang diampu.
+    - Menambahkan alias rute `/assessment/:periodeId*` dan `/self-assessment/:periodeId*` yang me-redirect otomatis ke `/dashboard/penilaian/:periodeId*`.
 
 ## Yang belum dikerjakan
 - Klik login/register/admin di browser pada sesi ini (emulator + UI belum diklik end-to-end untuk Jabatan/Pangkat)
@@ -155,12 +170,12 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 - Relasi Jabatan ↔ Unit Kerja (selain lewat data user)
 - Relasi TUSI ↔ Kompetensi (selain lewat soal)
 - Relasi Kompetensi ↔ Jabatan (`standar_kompetensi`)
-- Penilaian atasan per soal / per kompetensi (saat ini hanya 3 dimensi)
-- Rekap TNA / usulan pelatihan (dokumen `training_proposals` belum dipakai)
+- Penilaian atasan per soal / per kompetensi (saat ini 3 dimensi)
+- Fitur Export Rekap TNA ke format Excel / PDF (opsional untuk pengembangan berikutnya)
 
 ## Catatan / masalah
 - Firestore Emulator **wajib Java**. Tanpa Java, `npm run emulators` gagal.
-- Data emulator hilang saat proses dihentikan (export-on-exit belum diaktifkan).
+- Persistensi data emulator sudah aktif (`--import=./emulator-data --export-on-exit=./emulator-data`).
 - Warning Node `v20.18.2` vs `eslint-visitor-keys` tetap ada.
 - Service master data client-side (`getClientDb`). Jangan dipanggil dari Server Component tanpa koneksi emulator server.
 - Console error Base UI Button (`nativeButton` vs `<Link>`) sudah diperbaiki.
@@ -168,6 +183,6 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 
 ## Catatan untuk AI Agent Berikutnya
 - Selalu baca `docs/project.md`, `docs/konteks.md`, dan `docs/SETUP-EMULATOR.md`.
-- Langkah berikutnya yang masuk akal: tes alur atasan–bawahan di emulator (user A `supervisorId` = user B, isi self assessment A, nilai dari akun B), atau mulai Rekap TNA.
+- Modul Rekap TNA (`/admin/tna` dan `/admin/tna/[periodeId]`) sudah selesai dan siap diuji di emulator bersama alur Self Assessment dan Penilaian Atasan.
 - Jangan mengubah arsitektur besar tanpa persetujuan.
 - Setiap selesai tahap, update file ini.
