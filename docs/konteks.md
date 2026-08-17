@@ -11,6 +11,7 @@
 - Panduan: `docs/SETUP-EMULATOR.md`.
 - **Periode Penilaian, Self Assessment, pengelolaan Pengguna, dan Penilaian Atasan sudah ada.**
 - **Modul Rekap TNA & Usulan Pelatihan sudah selesai dibuat** (`/admin/tna` dan `/admin/tna/[periodeId]`).
+- **Standar Kompetensi per jabatan sudah ada** (`/admin/standar-kompetensi`), dan **Rekap TNA sekarang menghitung gap dari skor per kompetensi nyata** (bukan lagi angka tetap `5.0`). Lihat bagian "Standar Kompetensi & Gap per Kompetensi" di bawah.
 - `tsc --noEmit` dan `npm run lint` lulus 100% tanpa error.
 - Emulator sudah diverifikasi start di mesin ini (Java 21): Auth `:9099`, Firestore `:8080`, UI `:4000` merespons HTTP 200.
 
@@ -129,7 +130,27 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 2. `AuthGate` `area="admin"` (`canAccessAdmin`)
 3. Firestore rules: master data + `assessment_periods` + `tna_recaps` + `training_proposals` write hanya `isAdmin()`. Update `users.role` hanya `super_admin`. Admin boleh mengubah penempatan/atasan/TUSI tanpa menyentuh `role`. Pegawai boleh create/update `assessments` milik sendiri (`type: self`) dan `assessment_answers`. Atasan boleh membaca user bawahan (`supervisorId == uid`), membaca self assessment bawahan, serta create/update penilaian atasan (`type: supervisor`, `assessorId == uid`).
 
-## Keputusan penting
+## Standar Kompetensi & Gap per Kompetensi — file terkait
+```
+src/app/(admin)/admin/standar-kompetensi/page.tsx  # satu halaman: pilih jabatan -> tabel kompetensi -> dropdown level 1-5 -> simpan sekaligus
+src/lib/services/standar-kompetensi.ts             # get/save standar_kompetensi/{jabatanId}
+src/hooks/use-standar-kompetensi.ts
+src/lib/services/competency-score.ts               # computeEmployeeCompetencyScores(periodId, employee) -> CompetencyScore[]
+src/types/competency.ts                             # StandarKompetensi + StandarKompetensiItem (didefinisikan ulang)
+src/types/assessment.ts                             # CompetencyScore + field butuhPelatihan (baru)
+src/lib/services/tna.ts                             # generateTnaRecap() sekarang memanggil computeEmployeeCompetencyScores per pegawai
+src/components/admin/nav.ts                         # entri "Standar Kompetensi" di grup Master Data
+```
+
+Route baru: `/admin/standar-kompetensi` — akses sama seperti master data lain (`isAdmin()`).
+
+Ringkasan alur:
+- **Struktur dokumen** `standar_kompetensi/{jabatanId}`: `{ id, jabatanId, items: [{kompetensiId, levelStandar(1-5)}], updatedAt, updatedBy }`. Satu dokumen per jabatan, ID dokumen = `jabatanId` langsung (bukan auto-ID). Rule Firestore untuk collection ini **sudah ada sebelumnya** (baca signed-in, tulis admin) dan tidak perlu diubah.
+- **Verifikasi skala (blocking check sebelum implementasi)**: dikonfirmasi bahwa jawaban soal `likert` pada self assessment dan `dimensionScores` penilaian atasan sama-sama memakai skala `KompetensiLevel` global (default 1-5, 5 = paling mampu) — aman dijumlahkan. Tapi soal `yes_no` memakai skala terpisah `0/1` (`YES_NO_OPTIONS`) yang TIDAK sebanding, dan tidak ada validasi yang mencegah soal `yes_no` dikaitkan ke `kompetensiId`. Keputusan: `computeEmployeeCompetencyScores()` hanya menghitung jawaban yang `AssessmentAnswer.value`-nya bertipe `number` (ciri khas jawaban likert dalam kode saat ini) — bukan dengan join balik ke collection `questions`, cukup dari field yang sudah ada di `assessment_answers`. Jawaban `yes_no`/lainnya tetap tersimpan seperti biasa, hanya tidak ikut dihitung.
+- **Mesin skor** (`competency-score.ts`): untuk satu pegawai + periode, group jawaban likert per `kompetensiId` -> `selfScore` (rata-rata). `supervisorScore` diambil dari `dimensionScores[kompetensi.dimensi]` milik penilaian atasan (bukan rata-rata jawaban — penilaian atasan tidak punya `assessment_answers` per kompetensi, hanya 3 skor dimensi). `actualLevel` = `supervisorScore*0.7 + selfScore*0.3` (konstanta `SUPERVISOR_SCORE_WEIGHT`/`SELF_SCORE_WEIGHT`), atau `selfScore` saja jika penilaian atasan belum ada. `requiredLevel` diambil dari `standar_kompetensi` jabatan pegawai; kompetensi yang tidak ada jawaban likert ATAU tidak ada di standar **dilewati total** dari hasil (tidak dikembalikan dengan nilai 0/null). `gap = requiredLevel - actualLevel`. `butuhPelatihan = gap >= 1.0` (konstanta `GAP_TRAINING_THRESHOLD`, ditambahkan sebagai field baru ke type `CompetencyScore` yang sudah ada, bukan wrapper type baru). Dihitung on-demand, tidak disimpan ke collection baru.
+- **`tna.ts` (`generateTnaRecap`)**: `averageGap` per unit kerja sekarang dihitung dari rata-rata `gap` seluruh (pegawai × kompetensi) hasil `computeEmployeeCompetencyScores()` pada unit tsb, bukan lagi `5.0 - overallScore`. Signature fungsi tidak berubah. Clamp lama (`if (averageGap < 0) averageGap = 0`) dihapus karena gap negatif sekarang bermakna nyata (pegawai melebihi standar), bukan sekadar noise perhitungan.
+
+
 1. Project id emulator: `demo-tna-kompetensi` (selaras `.firebaserc`).
 2. Nilai `apiKey` / `appId` dummy boleh dipakai selama flag emulator `true`.
 3. Host emulator memakai `127.0.0.1`, bukan `localhost` (hindari masalah IPv6 di Windows).
@@ -169,8 +190,8 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 - Scaffold Cloud Functions
 - Relasi Jabatan ↔ Unit Kerja (selain lewat data user)
 - Relasi TUSI ↔ Kompetensi (selain lewat soal)
-- Relasi Kompetensi ↔ Jabatan (`standar_kompetensi`)
-- Penilaian atasan per soal / per kompetensi (saat ini 3 dimensi)
+- Penilaian atasan per soal / per kompetensi (saat ini 3 dimensi; skor per kompetensi didapat lewat pemetaan `dimensi`, bukan input langsung per kompetensi)
+- Soal `multiple_choice` masih belum punya editor opsi (independen dari pekerjaan Standar Kompetensi/gap)
 - Fitur Export Rekap TNA ke format Excel / PDF (opsional untuk pengembangan berikutnya)
 
 ## Catatan / masalah
@@ -184,5 +205,6 @@ Akses: hanya `super_admin` dan `admin`. Proteksi berlapis:
 ## Catatan untuk AI Agent Berikutnya
 - Selalu baca `docs/project.md`, `docs/konteks.md`, dan `docs/SETUP-EMULATOR.md`.
 - Modul Rekap TNA (`/admin/tna` dan `/admin/tna/[periodeId]`) sudah selesai dan siap diuji di emulator bersama alur Self Assessment dan Penilaian Atasan.
+- Modul Standar Kompetensi (`/admin/standar-kompetensi`) dan mesin skor per kompetensi (`src/lib/services/competency-score.ts`) sudah selesai; `generateTnaRecap()` di `tna.ts` sudah memakainya. Belum diuji end-to-end di emulator (perlu data: jabatan, kompetensi, standar_kompetensi, soal likert dengan `kompetensiId`, self + supervisor assessment submitted).
 - Jangan mengubah arsitektur besar tanpa persetujuan.
 - Setiap selesai tahap, update file ini.

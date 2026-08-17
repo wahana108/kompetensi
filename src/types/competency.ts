@@ -1,4 +1,4 @@
-import type { Activatable, Auditable } from "./common";
+import type { Activatable, Auditable, IsoDateString } from "./common";
 
 /** Dimensi kompetensi pada form Admin. */
 export type KompetensiDimensi =
@@ -42,11 +42,16 @@ export interface KompetensiLevel extends Activatable, Auditable {
   sortOrder: number;
 }
 
-/** Standar kompetensi yang wajib dimiliki suatu jabatan. Belum dipakai di UI. */
-export interface StandarKompetensi extends Activatable, Auditable {
+export interface StandarKompetensiItem {
+  kompetensiId: string;
+  levelStandar: number;
+}
+
+/** Target level kompetensi per jabatan. Satu dokumen per jabatan (id = jabatanId). */
+export interface StandarKompetensi {
   id: string;
   jabatanId: string;
-  kompetensiId: string;
-  requiredLevelId: string;
-  requiredLevel: number;
+  items: StandarKompetensiItem[];
+  updatedAt: IsoDateString | null;
+  updatedBy: string | null;
 }

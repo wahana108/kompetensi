@@ -10,6 +10,7 @@ import {
 import { getClientDb } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/collections";
 import { listAssessmentPeriods } from "@/lib/services/assessment-period";
+import { computeEmployeeCompetencyScores } from "@/lib/services/competency-score";
 import { listPengguna } from "@/lib/services/pengguna";
 import { listUnitKerja } from "@/lib/services/unit-kerja";
 import type {
@@ -222,21 +223,32 @@ export async function generateTnaRecap(
   const batch = writeBatch(db);
 
   const proposalsByUnit = new Map<string, TrainingProposal[]>();
-  const scoresByUnit = new Map<string, number[]>();
+  const gapsByUnit = new Map<string, number[]>();
   let proposalCount = 0;
 
-  // 3. Buat TrainingProposal untuk setiap penilaian atasan yang memiliki rekomendasi pelatihan
+  // 3. Buat TrainingProposal + kumpulkan gap per kompetensi untuk setiap penilaian atasan yang submitted
   for (const assessment of supervisorSubmitted) {
     const note = assessment.recommendationNote?.trim() ?? "";
     const employee = users.find((p) => p.id === assessment.employeeId);
     const unitKerjaId =
       employee?.unitKerjaId ?? assessment.assignment.unitKerjaId ?? "unknown";
 
-    if (assessment.overallScore !== null) {
-      if (!scoresByUnit.has(unitKerjaId)) {
-        scoresByUnit.set(unitKerjaId, []);
+    if (employee) {
+      const competencyScores = await computeEmployeeCompetencyScores(
+        periodId,
+        employee
+      );
+
+      for (const score of competencyScores) {
+        if (typeof score.gap !== "number") {
+          continue;
+        }
+
+        if (!gapsByUnit.has(unitKerjaId)) {
+          gapsByUnit.set(unitKerjaId, []);
+        }
+        gapsByUnit.get(unitKerjaId)!.push(score.gap);
       }
-      scoresByUnit.get(unitKerjaId)!.push(assessment.overallScore);
     }
 
     if (note) {
@@ -271,7 +283,7 @@ export async function generateTnaRecap(
 
   // 4. Agregasikan data menjadi TnaRecap per Unit Kerja
   const allUnitIds = Array.from(
-    new Set([...proposalsByUnit.keys(), ...scoresByUnit.keys()])
+    new Set([...proposalsByUnit.keys(), ...gapsByUnit.keys()])
   );
   let recapCount = 0;
 
@@ -280,14 +292,13 @@ export async function generateTnaRecap(
     const unitName =
       unitMap.get(unitId)?.name ??
       (unitId === "unknown" ? "Tanpa Unit Kerja" : "Unit Kerja");
-    const unitScores = scoresByUnit.get(unitId) ?? [];
+    const unitGaps = gapsByUnit.get(unitId) ?? [];
 
     let averageGap: number | null = null;
-    if (unitScores.length > 0) {
-      const avgScore =
-        unitScores.reduce((sum, s) => sum + s, 0) / unitScores.length;
-      averageGap = Math.round((5.0 - avgScore) * 10) / 10;
-      if (averageGap < 0) averageGap = 0;
+    if (unitGaps.length > 0) {
+      const avgGap =
+        unitGaps.reduce((sum, gap) => sum + gap, 0) / unitGaps.length;
+      averageGap = Math.round(avgGap * 10) / 10;
     }
 
     const recapId = `recap_${periodId}_${unitId}`;

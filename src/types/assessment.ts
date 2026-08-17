@@ -60,4 +60,5 @@ export interface CompetencyScore {
   requiredLevel: number | null;
   actualLevel: number | null;
   gap: number | null;
+  butuhPelatihan: boolean;
 }

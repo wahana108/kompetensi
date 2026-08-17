@@ -9,6 +9,7 @@ import {
   Gauge,
   LayoutDashboard,
   Medal,
+  ScrollText,
   Target,
   Users,
 } from "lucide-react";
@@ -36,6 +37,7 @@ export const ADMIN_ROUTES = {
   soal: "/admin/soal",
   soalNew: "/admin/soal/baru",
   soalEdit: (id: string) => `/admin/soal/${id}`,
+  standarKompetensi: "/admin/standar-kompetensi",
   periode: "/admin/periode",
   periodeNew: "/admin/periode/baru",
   periodeEdit: (id: string) => `/admin/periode/${id}`,
@@ -113,6 +115,11 @@ export const ADMIN_NAV: AdminNavItem[] = [
         href: ADMIN_ROUTES.soal,
         label: "Bank Soal",
         icon: CircleHelp,
+      },
+      {
+        href: ADMIN_ROUTES.standarKompetensi,
+        label: "Standar Kompetensi",
+        icon: ScrollText,
       },
     ],
   },
@@ -297,6 +304,13 @@ export function getAdminPageMeta(pathname: string): {
     return {
       title: "Edit Soal",
       description: "Ubah pertanyaan",
+    };
+  }
+
+  if (pathname === ADMIN_ROUTES.standarKompetensi) {
+    return {
+      title: "Standar Kompetensi",
+      description: "Level target kompetensi per jabatan",
     };
   }
 

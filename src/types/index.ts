@@ -22,6 +22,7 @@ export type {
   KompetensiDimensi,
   KompetensiLevel,
   StandarKompetensi,
+  StandarKompetensiItem,
 } from "./competency";
 
 export type {
