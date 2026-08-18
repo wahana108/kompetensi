@@ -38,6 +38,7 @@ export const ADMIN_ROUTES = {
   kompetensiEdit: (id: string) => `/admin/kompetensi/${id}`,
   soal: "/admin/soal",
   soalNew: "/admin/soal/baru",
+  soalImport: "/admin/soal/import",
   soalEdit: (id: string) => `/admin/soal/${id}`,
   standarKompetensi: "/admin/standar-kompetensi",
   periode: "/admin/periode",
@@ -316,6 +317,13 @@ export function getAdminPageMeta(pathname: string): {
     return {
       title: "Tambah Soal",
       description: "Buat pertanyaan baru",
+    };
+  }
+
+  if (pathname === ADMIN_ROUTES.soalImport) {
+    return {
+      title: "Impor Soal (AI)",
+      description: "Rakit prompt, tempel hasil AI, pratinjau, lalu simpan",
     };
   }
 

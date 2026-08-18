@@ -25,6 +25,8 @@ import {
 import { Textarea } from "@/components/ui/textarea";
 import {
   DEFAULT_SYSTEM_PARAMETERS,
+  DEFAULT_TEMPLATE_PROMPT_SOAL,
+  PROMPT_SOAL_PLACEHOLDERS,
   mapSystemParameterError,
   saveSystemParameters,
 } from "@/lib/services/system-parameter";
@@ -48,6 +50,9 @@ export default function ParameterSistemPage() {
   const [ambangValidasiTes, setAmbangValidasiTes] = useState("70");
   const [modeValidasiTes, setModeValidasiTes] =
     useState<ModeValidasiTes>("informasi");
+  const [templatePromptSoal, setTemplatePromptSoal] = useState(
+    DEFAULT_TEMPLATE_PROMPT_SOAL
+  );
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
@@ -66,6 +71,7 @@ export default function ParameterSistemPage() {
     setNamaInstansi(params.item.namaInstansi);
     setAmbangValidasiTes(String(params.item.ambangValidasiTes));
     setModeValidasiTes(params.item.modeValidasiTes);
+    setTemplatePromptSoal(params.item.templatePromptSoal);
   }, [params.item]);
 
   function handleSkalaMaksimumChange(value: string) {
@@ -119,6 +125,7 @@ export default function ParameterSistemPage() {
           namaInstansi,
           ambangValidasiTes: Number(ambangValidasiTes),
           modeValidasiTes,
+          templatePromptSoal,
         },
         profile.id
       );
@@ -336,6 +343,42 @@ export default function ParameterSistemPage() {
                 </Select>
               </div>
             </div>
+          </section>
+
+          <section className="space-y-3">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-sm font-semibold text-foreground">
+                Template Prompt Impor Soal (AI)
+              </p>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={() => setTemplatePromptSoal(DEFAULT_TEMPLATE_PROMPT_SOAL)}
+              >
+                Kembalikan ke Default
+              </Button>
+            </div>
+            <p className="text-xs text-muted-foreground">
+              Dipakai di halaman{" "}
+              <span className="font-mono">/admin/soal/import</span> untuk
+              merakit prompt yang ditempel ke AI. Placeholder yang diganti
+              otomatis saat perakitan:{" "}
+              <span className="font-mono">
+                {PROMPT_SOAL_PLACEHOLDERS.join(", ")}
+              </span>{" "}
+              — kelimanya wajib ada di template.
+            </p>
+            <Textarea
+              id="template-prompt-soal"
+              value={templatePromptSoal}
+              onChange={(event) => setTemplatePromptSoal(event.target.value)}
+              disabled={pending}
+              rows={16}
+              className="font-mono text-xs"
+              required
+            />
           </section>
         </CardContent>
         <CardFooter className="justify-end">

@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { MoreHorizontal, Plus, Search } from "lucide-react";
+import { MoreHorizontal, Plus, Search, Sparkles } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useKompetensiList } from "@/hooks/use-kompetensi";
@@ -144,10 +144,19 @@ export default function SoalListPage() {
               Pertanyaan penilaian. Penyusunan kuesioner lengkap belum dibuat.
             </CardDescription>
           </div>
-          <Link href={ADMIN_ROUTES.soalNew} className={buttonVariants()}>
-            <Plus />
-            Tambah Soal
-          </Link>
+          <div className="flex gap-2">
+            <Link
+              href={ADMIN_ROUTES.soalImport}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <Sparkles />
+              Impor via AI
+            </Link>
+            <Link href={ADMIN_ROUTES.soalNew} className={buttonVariants()}>
+              <Plus />
+              Tambah Soal
+            </Link>
+          </div>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">

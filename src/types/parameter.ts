@@ -23,6 +23,12 @@ export interface SystemParameters {
   /** Untuk fitur tes berikutnya (belum dipakai). */
   ambangValidasiTes: number;
   modeValidasiTes: ModeValidasiTes;
+  /**
+   * Template prompt untuk halaman Impor Soal (AI), /admin/soal/import.
+   * Placeholder yang diganti saat perakitan: {{KOMPETENSI}}, {{JUMLAH}},
+   * {{TIPE}}, {{SKEMA}}, {{KONTEKS}}.
+   */
+  templatePromptSoal: string;
   updatedAt: IsoDateString | null;
   updatedBy: string | null;
 }

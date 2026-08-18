@@ -226,6 +226,56 @@ export async function createQuestion(
 ): Promise<Question> {
   const db = requireDb();
   const items = await listQuestions();
+  const batch = writeBatch(db);
+  const record = await buildQuestionWrite(batch, db, input, items, actorId);
+  await batch.commit();
+
+  return record;
+}
+
+/**
+ * Impor massal (dipakai /admin/soal/import): SATU writeBatch untuk semua
+ * soal + kunci jawabannya sekaligus, jadi benar-benar atomik — kalau satu
+ * write gagal, tidak ada satu pun yang tersimpan. Dibatasi
+ * MAX_IMPORT_BATCH_SIZE (lihat question-import.ts) supaya tidak melebihi
+ * limit 500 operasi per writeBatch Firestore (tiap soal pilihan_ganda = 2
+ * operasi: soal + kunci jawaban).
+ */
+export async function createQuestionsBatch(
+  inputs: QuestionWriteInput[],
+  actorId: string
+): Promise<Question[]> {
+  const db = requireDb();
+  const items = await listQuestions();
+  const batch = writeBatch(db);
+  const records: Question[] = [];
+
+  for (const input of inputs) {
+    const record = await buildQuestionWrite(batch, db, input, items, actorId);
+    records.push(record);
+    items.push(record);
+  }
+
+  await batch.commit();
+  return records;
+}
+
+/**
+ * Logika inti satu soal (validasi relasi, kode unik, skala, urutan, opsi,
+ * kunci jawaban) dipakai bersama oleh createQuestion (satu soal, batch
+ * sendiri) dan createQuestionsBatch (banyak soal, satu batch bersama) —
+ * supaya keduanya benar-benar jalur yang sama, bukan implementasi ganda.
+ * `items` dipakai untuk cek kode unik + urutan berikutnya; caller batch
+ * WAJIB menambahkan record hasil ke `items` sebelum memanggil lagi untuk
+ * soal berikutnya.
+ */
+async function buildQuestionWrite(
+  batch: ReturnType<typeof writeBatch>,
+  db: ReturnType<typeof requireDb>,
+  input: QuestionWriteInput,
+  items: Question[],
+  actorId: string
+): Promise<Question> {
   const normalized = await validateRelations(normalizeQuestionInput(input));
   assertUniqueCode(items, normalized.code);
 
@@ -251,10 +301,8 @@ export async function createQuestion(
     updatedBy: actorId,
   };
 
-  const batch = writeBatch(db);
   batch.set(ref, record);
   await applyAnswerKey(batch, db, ref.id, normalized, actorId);
-  await batch.commit();
 
   return record;
 }

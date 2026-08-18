@@ -5,6 +5,47 @@ import type { ModePendaftaran, ModeValidasiTes, SystemParameters } from "@/types
 
 const GLOBAL_DOC_ID = "global";
 
+/** Placeholder wajib ada di templatePromptSoal — lihat perakitan di question-import.ts. */
+export const PROMPT_SOAL_PLACEHOLDERS = [
+  "{{KOMPETENSI}}",
+  "{{JUMLAH}}",
+  "{{TIPE}}",
+  "{{SKEMA}}",
+  "{{KONTEKS}}",
+] as const;
+
+/** Nilai default templatePromptSoal — dipakai kalau parameter belum diisi, dan sebagai target "Kembalikan ke Default" di /admin/parameter. */
+export const DEFAULT_TEMPLATE_PROMPT_SOAL = `Anda adalah asisten penyusun soal penilaian kompetensi pegawai instansi pemerintah.
+
+TUGAS: Buat soal penilaian untuk kompetensi berikut:
+{{KOMPETENSI}}
+
+Tipe soal: {{TIPE}}
+Jumlah: {{JUMLAH}} soal per kompetensi di atas.
+
+KONTEKS INSTANSI/UNIT KERJA (perhatikan kalau ada, abaikan kalau kosong):
+{{KONTEKS}}
+
+MUTU SOAL — WAJIB DIPATUHI:
+1. Soal harus spesifik pada situasi kerja nyata, bukan pernyataan umum yang tidak bisa dinilai.
+   BURUK: "Saya mampu menerapkan pengetahuan regulasi."
+   BAIK: "Saya dapat menjelaskan perbedaan prosedur akreditasi pelatihan baru dan perpanjangan tanpa membuka pedoman."
+2. Variasikan tingkat kesulitan dalam satu kompetensi: sebagian soal tugas rutin sehari-hari, sebagian situasi tidak biasa yang butuh pertimbangan/penalaran, bukan hafalan semata.
+3. Untuk pilihan ganda: pengecoh (opsi salah) harus masuk akal — kesalahan yang benar-benar sering terjadi di lapangan, BUKAN opsi yang jelas-jelas salah atau tidak masuk akal. Panjang semua opsi kira-kira setara — jangan sampai jawaban benar adalah opsi paling panjang/detail. Jangan pernah pakai opsi "semua benar" atau "tidak ada yang benar".
+4. Untuk likert: satu pernyataan hanya menilai SATU kemampuan — jangan menggabungkan dua hal sekaligus (contoh yang salah: "mampu menyusun DAN mengevaluasi laporan").
+5. Hindari kalimat yang jawabannya sudah tersirat jelas di pertanyaannya sendiri.
+6. Jangan membuat soal duplikat atau terlalu mirip satu sama lain.
+
+ATURAN FORMAT — WAJIB DIPATUHI:
+1. Balas HANYA dengan JSON valid sesuai skema di bawah — tanpa teks pembuka/penutup, tanpa markdown selain JSON itu sendiri.
+2. Setiap soal WAJIB memakai "kompetensiKode" persis seperti kode yang tercantum di atas (huruf besar/kecil apa adanya).
+3. Pertanyaan ditulis dalam Bahasa Indonesia yang jelas dan baku.
+4. Untuk tipe "pilihan_ganda": buat 4 opsi jawaban, dan TEPAT SATU opsi dengan "benar": true — sisanya "benar": false.
+5. Untuk tipe "likert" dan "yes_no": JANGAN sertakan field "opsi" sama sekali.
+
+SKEMA JSON YANG DIMINTA:
+{{SKEMA}}`;
+
 /** Dipakai kalau dokumen system_parameters/global belum ada. */
 export const DEFAULT_SYSTEM_PARAMETERS: SystemParameters = {
   id: "global",
@@ -24,6 +65,7 @@ export const DEFAULT_SYSTEM_PARAMETERS: SystemParameters = {
   namaInstansi: "",
   ambangValidasiTes: 70,
   modeValidasiTes: "informasi",
+  templatePromptSoal: DEFAULT_TEMPLATE_PROMPT_SOAL,
   updatedAt: null,
   updatedBy: null,
 };
@@ -68,6 +110,7 @@ export type SystemParametersWriteInput = {
   namaInstansi: string;
   ambangValidasiTes: number;
   modeValidasiTes: ModeValidasiTes;
+  templatePromptSoal: string;
 };
 
 export function normalizeSystemParametersInput(
@@ -137,6 +180,19 @@ export function normalizeSystemParametersInput(
     throw new SystemParameterError("Mode validasi tes tidak valid.");
   }
 
+  const templatePromptSoal = input.templatePromptSoal.trim();
+  if (templatePromptSoal.length === 0) {
+    throw new SystemParameterError("Template prompt soal tidak boleh kosong.");
+  }
+  const missingPlaceholders = PROMPT_SOAL_PLACEHOLDERS.filter(
+    (placeholder) => !templatePromptSoal.includes(placeholder)
+  );
+  if (missingPlaceholders.length > 0) {
+    throw new SystemParameterError(
+      `Template prompt soal harus memuat placeholder: ${missingPlaceholders.join(", ")}.`
+    );
+  }
+
   return {
     bobotAtasan,
     bobotSelf,
@@ -148,6 +204,7 @@ export function normalizeSystemParametersInput(
     namaInstansi,
     ambangValidasiTes,
     modeValidasiTes: input.modeValidasiTes,
+    templatePromptSoal,
   };
 }
 
@@ -234,6 +291,10 @@ function mapSystemParameters(data: DocumentData): SystemParameters {
         ? data.ambangValidasiTes
         : DEFAULT_SYSTEM_PARAMETERS.ambangValidasiTes,
     modeValidasiTes,
+    templatePromptSoal:
+      typeof data.templatePromptSoal === "string" && data.templatePromptSoal.trim().length > 0
+        ? data.templatePromptSoal
+        : DEFAULT_SYSTEM_PARAMETERS.templatePromptSoal,
     updatedAt: toIso(data.updatedAt),
     updatedBy: typeof data.updatedBy === "string" ? data.updatedBy : null,
   };

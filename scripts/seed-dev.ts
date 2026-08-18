@@ -181,6 +181,36 @@ const MC_OPTIONS: Array<{ value: string; label: string }> = [
 const MC_CORRECT_VALUE = "opt1";
 const MC_WRONG_VALUE = "opt2";
 
+// Sinkron dengan DEFAULT_TEMPLATE_PROMPT_SOAL di src/lib/services/system-parameter.ts —
+// diduplikasi di sini karena seed-dev.ts sengaja tidak mengimpor modul client SDK.
+const SEED_TEMPLATE_PROMPT_SOAL = `Anda adalah asisten penyusun soal penilaian kompetensi pegawai instansi pemerintah.
+
+TUGAS: Buat soal penilaian untuk kompetensi berikut:
+{{KOMPETENSI}}
+
+Tipe soal: {{TIPE}}
+Jumlah: {{JUMLAH}} soal per kompetensi di atas.
+
+KONTEKS INSTANSI/UNIT KERJA (perhatikan kalau ada, abaikan kalau kosong):
+{{KONTEKS}}
+
+MUTU SOAL — WAJIB DIPATUHI:
+1. Soal harus spesifik pada situasi kerja nyata, bukan pernyataan umum yang tidak bisa dinilai.
+2. Variasikan tingkat kesulitan dalam satu kompetensi: sebagian soal tugas rutin, sebagian situasi tidak biasa yang butuh pertimbangan.
+3. Untuk pilihan ganda: pengecoh harus masuk akal, panjang opsi setara, jangan pakai "semua benar"/"tidak ada yang benar".
+4. Untuk likert: satu pernyataan hanya menilai satu kemampuan.
+5. Hindari kalimat yang jawabannya sudah tersirat di pertanyaannya sendiri.
+6. Jangan membuat soal duplikat atau terlalu mirip satu sama lain.
+
+ATURAN FORMAT — WAJIB DIPATUHI:
+1. Balas HANYA dengan JSON valid sesuai skema di bawah — tanpa teks pembuka/penutup.
+2. Setiap soal WAJIB memakai "kompetensiKode" persis seperti kode yang tercantum di atas.
+3. Untuk tipe "pilihan_ganda": buat 4 opsi jawaban, TEPAT SATU opsi dengan "benar": true.
+4. Untuk tipe "likert" dan "yes_no": JANGAN sertakan field "opsi" sama sekali.
+
+SKEMA JSON YANG DIMINTA:
+{{SKEMA}}`;
+
 // levelStandar bervariasi (3 dan 4) antar dua jabatan.
 const STANDAR_KASUBBAG: Record<string, number> = {
   [IDS.kompetensi.k1]: 3,
@@ -534,6 +564,7 @@ async function main() {
     namaInstansi: "Instansi Uji Coba",
     ambangValidasiTes: 70,
     modeValidasiTes: "informasi",
+    templatePromptSoal: SEED_TEMPLATE_PROMPT_SOAL,
     updatedAt: now,
     updatedBy: IDS.user.admin,
   });
