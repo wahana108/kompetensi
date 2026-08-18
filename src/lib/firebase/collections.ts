@@ -15,6 +15,7 @@ export const COLLECTIONS = {
   trainingProposals: "training_proposals",
   tnaRecaps: "tna_recaps",
   systemParameters: "system_parameters",
+  userInvitations: "user_invitations",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

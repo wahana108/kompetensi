@@ -1,6 +1,6 @@
 # Konteks Project Saat Ini
 
-**Update Terakhir**: 17 Agustus 2026
+**Update Terakhir**: 18 Agustus 2026
 
 ## Status Saat Ini
 - Fondasi Next.js 15 + shadcn/ui + data model + Auth/Role sudah ada.
@@ -12,6 +12,7 @@
 - **Periode Penilaian, Self Assessment, pengelolaan Pengguna, dan Penilaian Atasan sudah ada.**
 - **Modul Rekap TNA & Usulan Pelatihan sudah selesai dibuat** (`/admin/tna` dan `/admin/tna/[periodeId]`).
 - **Standar Kompetensi per jabatan sudah ada** (`/admin/standar-kompetensi`), dan **Rekap TNA sekarang menghitung gap dari skor per kompetensi nyata** (bukan lagi angka tetap `5.0`). Lihat bagian "Standar Kompetensi & Gap per Kompetensi" di bawah.
+- **Kontrol akses akun (status pending/aktif/nonaktif), undangan pendaftaran mode tertutup, dan halaman Parameter Sistem sudah ada.** Lihat bagian "Kontrol Akses & Parameter Sistem" di bawah. Diuji langsung lewat emulator (alur daftar tanpa undangan ditolak + rollback akun Auth; alur daftar dengan undangan berhasil + status aktif + undangan tertandai terpakai).
 - `tsc --noEmit` dan `npm run lint` lulus 100% tanpa error.
 - Emulator sudah diverifikasi start di mesin ini (Java 21): Auth `:9099`, Firestore `:8080`, UI `:4000` merespons HTTP 200.
 
@@ -150,8 +151,54 @@ Ringkasan alur:
 - **Mesin skor** (`competency-score.ts`): untuk satu pegawai + periode, group jawaban likert per `kompetensiId` -> `selfScore` (rata-rata). `supervisorScore` diambil dari `dimensionScores[kompetensi.dimensi]` milik penilaian atasan (bukan rata-rata jawaban — penilaian atasan tidak punya `assessment_answers` per kompetensi, hanya 3 skor dimensi). `actualLevel` = `supervisorScore*0.7 + selfScore*0.3` (konstanta `SUPERVISOR_SCORE_WEIGHT`/`SELF_SCORE_WEIGHT`), atau `selfScore` saja jika penilaian atasan belum ada. `requiredLevel` diambil dari `standar_kompetensi` jabatan pegawai; kompetensi yang tidak ada jawaban likert ATAU tidak ada di standar **dilewati total** dari hasil (tidak dikembalikan dengan nilai 0/null). `gap = requiredLevel - actualLevel`. `butuhPelatihan = gap >= 1.0` (konstanta `GAP_TRAINING_THRESHOLD`, ditambahkan sebagai field baru ke type `CompetencyScore` yang sudah ada, bukan wrapper type baru). Dihitung on-demand, tidak disimpan ke collection baru.
 - **`tna.ts` (`generateTnaRecap`)**: `averageGap` per unit kerja sekarang dihitung dari rata-rata `gap` seluruh (pegawai × kompetensi) hasil `computeEmployeeCompetencyScores()` pada unit tsb, bukan lagi `5.0 - overallScore`. Signature fungsi tidak berubah. Clamp lama (`if (averageGap < 0) averageGap = 0`) dihapus karena gap negatif sekarang bermakna nyata (pegawai melebihi standar), bukan sekadar noise perhitungan.
 
+## Kontrol Akses & Parameter Sistem — file terkait
+```
+src/types/user.ts                              # UserStatus, UserInvitation, UserProfile.status
+src/types/parameter.ts                         # SystemParameters (satu dokumen global, ganti bentuk key/value lama)
+src/lib/auth/user-profile.ts                   # buildDefaultProfile (pending) vs buildInvitedProfile (aktif)
+src/lib/auth/session.ts                        # ensureUserProfile: gerbang domain+mode+undangan, rollback akun Auth kalau ditolak
+src/lib/auth/guards.ts                         # requireAuthenticated/requireGuest sadar status; area "pending" baru
+src/lib/auth/constants.ts                      # PENDING_PATH = "/pending"
+src/components/auth/auth-gate.tsx              # sign-out kalau status nonaktif (sama seperti !isActive)
+src/lib/services/system-parameter.ts           # get/save system_parameters/global
+src/hooks/use-system-parameter.ts
+src/lib/services/user-invitation.ts            # createInvitation, getInvitationByEmail, markInvitationUsedInBatch
+src/hooks/use-user-invitation.ts
+src/lib/services/pengguna.ts                   # +listPendingUsers, approveUser, rejectUser
+src/hooks/use-pengguna.ts                      # +usePendingUserList
+src/app/pending/layout.tsx + page.tsx          # halaman tunggu, tanpa Shell/menu
+src/app/(admin)/admin/persetujuan-akun/page.tsx # form undang + tabel pending + approve/reject
+src/app/(admin)/admin/parameter/page.tsx       # form parameter sistem
+src/components/admin/nav.ts                    # +Persetujuan Akun (badge jumlah pending) +Parameter Sistem
+src/components/admin/admin-shell.tsx           # hitung badge dari usePendingUserList()
+scripts/seed-dev.ts                            # +system_parameters/global, status:"aktif" di 4 user seed
+firestore.rules                                # lihat ringkasan di bawah
+```
 
-1. Project id emulator: `demo-tna-kompetensi` (selaras `.firebaserc`).
+Route baru: `/pending` (area khusus, bukan dashboard/admin), `/admin/persetujuan-akun`, `/admin/parameter`.
+
+Ringkasan alur:
+- **`UserProfile.status`**: `"pending" | "aktif" | "nonaktif"`. Data lama tanpa field ini dibaca sebagai `"aktif"` di `mapUserProfile` (biar tidak mengunci akun lama) — **tapi firestore.rules TIDAK punya fallback itu**, `userExists()` di rules mensyaratkan `userData().status == 'aktif'` persis. Kalau ada user tanpa field `status` di Firestore, hak admin mereka hilang di level rules sampai field-nya diisi. Tidak masalah untuk project ini (belum ada data produksi), tapi wajib diingat.
+- **Dua mode pendaftaran** (`system_parameters/global.modePendaftaran`): "terbuka" → siapa saja boleh bikin akun sendiri, status otomatis `pending`, role dipaksa `pegawai`. "tertutup" → hanya email yang sudah diundang admin (`user_invitations/{emailLowercase}`, `usedAt == null`) yang boleh mendaftar; kalau valid, status LANGSUNG `aktif` dan role/unit/jabatan/atasan mengikuti data undangan (bukan `pending` — sudah dianggap disetujui saat diundang). Domain email (`domainDiizinkan`) dicek di kedua mode, sebelum cek mode.
+- **Gerbang pendaftaran ada satu tempat**: `ensureUserProfile()` di `session.ts`, dipanggil baik dari `registerWithEmail` maupun `signInWithGoogle`/`signInWithEmail` (pertama kali) — jadi mode tertutup tidak bisa dilewati dengan pakai tombol "Masuk dengan Google". Kalau gerbang menolak (domain/undangan), akun Firebase Auth yang baru saja terbentuk **di-rollback** (`deleteUser`) supaya email tidak nyangkut permanen tanpa profil.
+- **`user_invitations/{emailLowercase}`**: TIDAK dihapus setelah dipakai (sesuai instruksi) — `usedAt` diisi timestamp sebagai penanda. Field: `email, namaLengkap, unitKerjaId, jabatanId, supervisorId, role, createdAt, createdBy, usedAt`. Dibuat dari `/admin/persetujuan-akun` (form "Undang Pengguna Baru").
+- **Firestore rules, perubahan**:
+  - `userExists()` (dipakai `hasRole`/`isAdmin`/`isSuperAdmin`/`isModerator` — jadi berlaku ke SEMUA collection) sekarang juga mensyaratkan `status == 'aktif'`. Admin/moderator yang dinonaktifkan langsung kehilangan hak tulis di rules, bukan cuma diblokir UI.
+  - `users` create: dua jalur — (a) `role=='pegawai' && status=='pending'` (pendaftaran mandiri biasa), atau (b) `status=='aktif'` DAN ada undangan valid di `user_invitations` dengan `role` yang sama persis (`hasUsableInvitation`). Email di payload wajib sama dengan `request.auth.token.email` (dicocokkan huruf kecil) — mencegah orang memakai undangan milik email lain.
+  - `users` update: field `status` ditambahkan ke daftar yang **tidak boleh** diubah sendiri oleh pemilik akun (`isOwner`) — tanpa ini, user `pending` bisa curang set status dirinya sendiri jadi `aktif` lewat write langsung.
+  - `user_invitations`: baca/tulis umum hanya admin. **Pengecualian sempit**: pemilik email (dicocokkan `request.auth.token.email`) boleh membaca undangannya sendiri (perlu saat proses daftar, sebelum jadi admin apa pun) dan boleh meng-update **hanya field `usedAt`** dari `null` ke terisi (bagian dari alur pendaftaran yang tidak lewat Cloud Functions). Ini penyesuaian dari instruksi asli "hanya admin" — kalau benar-benar hanya admin, alur pendaftaran mandiri tidak akan pernah bisa menandai undangan terpakai sendiri.
+  - `system_parameters` write: dari `isAdmin()` jadi `isSuperAdmin()` saja (sebelumnya admin biasa juga bisa tulis).
+- **Diuji nyata** (bukan cuma `tsc`/lint): skrip sekali-pakai lewat `tsx` memanggil `registerWithEmail()` langsung ke emulator — daftar tanpa undangan ditolak dengan pesan jelas + akun Auth ter-rollback; daftar dengan undangan valid berhasil (status `aktif`, role sesuai undangan) dan `usedAt` undangan terisi. Skrip dihapus setelah dipakai, tidak masuk repo.
+- **Badge jumlah pending** di sidebar admin dihitung dari `usePendingUserList()` di `AdminShell`, ditempel ke item nav lewat `badgeKey: "pendingUsers"` (lihat `AdminNavLink`).
+
+### Utang teknis: A5 (session cookie httpOnly) — TIDAK dikerjakan
+Diminta secara eksplisit untuk verifikasi dulu sebelum eksekusi; jawabannya **tidak bisa tanpa merombak alur auth secara besar**, jadi dilewati. Dicatat sebagai utang teknis:
+
+> Middleware belum memverifikasi session cookie secara kriptografis. Perlu Node runtime middleware + custom claims. Dampak terbatas karena guards.ts dan firestore.rules sama-sama mengecek status dari Firestore.
+
+Detail alasan: `src/middleware.ts` jalan di Edge Runtime (default Next.js), sedangkan `firebase-admin`/`verifySessionCookie` butuh Node.js runtime (perlu opt-in eksperimental `nodeMiddleware` di `next.config.ts`). Bahkan kalau itu diaktifkan, role & status pengguna hidup di Firestore, bukan custom claims Firebase Auth — verifikasi di middleware tanpa query Firestore per-request butuh sinkronisasi custom claims baru (`setCustomUserClaims` tiap role/status berubah + refresh token client). `middleware.ts` **tidak disentuh** di tugas ini.
+
+## Keputusan penting
 2. Nilai `apiKey` / `appId` dummy boleh dipakai selama flag emulator `true`.
 3. Host emulator memakai `127.0.0.1`, bukan `localhost` (hindari masalah IPv6 di Windows).
 4. Cookie session tetap UX-only; sumber kebenaran role = Firestore.
@@ -186,13 +233,15 @@ Ringkasan alur:
 
 ## Yang belum dikerjakan
 - Klik login/register/admin di browser pada sesi ini (emulator + UI belum diklik end-to-end untuk Jabatan/Pangkat)
-- Session cookie httpOnly
+- Session cookie httpOnly + verifikasi kriptografis di middleware — lihat "Utang teknis: A5" di atas
 - Scaffold Cloud Functions
 - Relasi Jabatan ↔ Unit Kerja (selain lewat data user)
 - Relasi TUSI ↔ Kompetensi (selain lewat soal)
 - Penilaian atasan per soal / per kompetensi (saat ini 3 dimensi; skor per kompetensi didapat lewat pemetaan `dimensi`, bukan input langsung per kompetensi)
 - Soal `multiple_choice` masih belum punya editor opsi (independen dari pekerjaan Standar Kompetensi/gap)
 - Fitur Export Rekap TNA ke format Excel / PDF (opsional untuk pengembangan berikutnya)
+- `computeEmployeeCompetencyScores()` masih pakai konstanta bawaan (`SUPERVISOR_SCORE_WEIGHT`/`SELF_SCORE_WEIGHT`/`GAP_TRAINING_THRESHOLD`), BELUM menerima `bobotAtasan`/`bobotSelf`/`ambangButuhPelatihan` dari `system_parameters/global` sebagai argumen. Prinsip wajib kalau nanti dikerjakan: baca parameter SATU KALI di level halaman/hook lalu OPER sebagai argumen ke fungsi — `competency-score.ts` sendiri jangan baca Firestore. `skalaMaksimum`/`labelSkala` juga belum dipakai di UI mana pun (form self/supervisor assessment masih hardcode skala 1-5 lewat `kompetensi_levels`, bukan dari parameter ini).
+- Halaman Parameter Sistem (`/admin/parameter`) dan Persetujuan Akun (`/admin/persetujuan-akun`) belum diklik manual di browser — baru diverifikasi lewat `tsc`, lint, dan skrip smoke test langsung ke `registerWithEmail()` (bukan lewat form React-nya).
 
 ## Catatan / masalah
 - Firestore Emulator **wajib Java**. Tanpa Java, `npm run emulators` gagal.
@@ -205,6 +254,8 @@ Ringkasan alur:
 ## Catatan untuk AI Agent Berikutnya
 - Selalu baca `docs/project.md`, `docs/konteks.md`, dan `docs/SETUP-EMULATOR.md`.
 - Modul Rekap TNA (`/admin/tna` dan `/admin/tna/[periodeId]`) sudah selesai dan siap diuji di emulator bersama alur Self Assessment dan Penilaian Atasan.
-- Modul Standar Kompetensi (`/admin/standar-kompetensi`) dan mesin skor per kompetensi (`src/lib/services/competency-score.ts`) sudah selesai; `generateTnaRecap()` di `tna.ts` sudah memakainya. Belum diuji end-to-end di emulator (perlu data: jabatan, kompetensi, standar_kompetensi, soal likert dengan `kompetensiId`, self + supervisor assessment submitted).
+- Modul Standar Kompetensi (`/admin/standar-kompetensi`) dan mesin skor per kompetensi (`src/lib/services/competency-score.ts`) sudah selesai; `generateTnaRecap()` di `tna.ts` sudah memakainya.
+- Kontrol akses (status akun, undangan, parameter sistem) sudah selesai dan sudah diuji lewat emulator (lihat bagian "Kontrol Akses & Parameter Sistem"). `middleware.ts` **sengaja tidak disentuh** — jangan diubah tanpa diskusi ulang soal A5.
+- `emulator-data/` sempat dikosongkan lalu di-seed ulang (`npm run seed:dev`) untuk menguji rules baru dari kondisi bersih — kalau ada yang terasa hilang dari data emulator sebelumnya, itu sebabnya.
 - Jangan mengubah arsitektur besar tanpa persetujuan.
 - Setiap selesai tahap, update file ini.

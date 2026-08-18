@@ -10,10 +10,12 @@ import {
   type ReactNode,
 } from "react";
 import { onAuthStateChanged, type User } from "firebase/auth";
-import { getClientAuth, isFirebaseConfigured } from "@/lib/firebase/client";
+import { doc, onSnapshot, type Unsubscribe } from "firebase/firestore";
+import { getClientAuth, getClientDb, isFirebaseConfigured } from "@/lib/firebase/client";
+import { COLLECTIONS } from "@/lib/firebase/collections";
+import { mapUserProfile } from "@/lib/auth/user-profile";
 import {
   clearAuthCookies,
-  ensureUserProfile,
   registerWithEmail,
   setAuthCookies,
   signInWithEmail,
@@ -57,8 +59,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       return;
     }
 
-    const unsubscribe = onAuthStateChanged(auth, async (nextUser) => {
+    // Provider ini HANYA MEMBACA profil (lewat onSnapshot), tidak pernah
+    // membuatnya. Pembuatan dokumen users/{uid} baru terjadi satu-satunya
+    // di session.ts (registerWithEmail / signInWithGoogle) — kalau provider
+    // ini juga membuat profil, dua penulis bisa balapan menulis dokumen
+    // yang sama (itu yang menyebabkan bug sebelumnya: akun ter-rollback
+    // meski registrasi sebenarnya sudah berhasil). onSnapshot otomatis
+    // menangkap begitu dokumennya benar-benar dibuat oleh fungsi tsb,
+    // jadi login Google pertama kali tetap jalan normal — provider tinggal
+    // menunggu snapshot berikutnya, tidak perlu tahu siapa yang menulis.
+    let profileUnsubscribe: Unsubscribe | null = null;
+
+    const authUnsubscribe = onAuthStateChanged(auth, (nextUser) => {
       setError(null);
+      profileUnsubscribe?.();
+      profileUnsubscribe = null;
 
       if (!nextUser) {
         setUser(null);
@@ -71,23 +86,46 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setUser(nextUser);
       setLoading(true);
 
-      try {
-        const nextProfile = await ensureUserProfile(nextUser);
-        setProfile(nextProfile);
-        setAuthCookies(nextProfile.role);
-      } catch (profileError) {
-        setProfile(null);
-        setError(
-          profileError instanceof Error
-            ? profileError.message
-            : "Gagal memuat profil pengguna."
-        );
-      } finally {
+      const db = getClientDb();
+      if (!db) {
+        setError("Cloud Firestore belum dikonfigurasi. Isi file .env.local.");
         setLoading(false);
+        return;
       }
+
+      profileUnsubscribe = onSnapshot(
+        doc(db, COLLECTIONS.users, nextUser.uid),
+        (snapshot) => {
+          if (!snapshot.exists()) {
+            // Belum ada dokumen — kemungkinan sedang dibuat oleh
+            // registerWithEmail/signInWithGoogle. Snapshot berikutnya akan
+            // otomatis datang begitu dokumennya tersimpan.
+            setProfile(null);
+            setLoading(false);
+            return;
+          }
+
+          const nextProfile = mapUserProfile(snapshot.id, snapshot.data());
+          setProfile(nextProfile);
+          setAuthCookies(nextProfile.role);
+          setLoading(false);
+        },
+        (snapshotError) => {
+          setProfile(null);
+          setError(
+            snapshotError instanceof Error
+              ? snapshotError.message
+              : "Gagal memuat profil pengguna."
+          );
+          setLoading(false);
+        }
+      );
     });
 
-    return unsubscribe;
+    return () => {
+      authUnsubscribe();
+      profileUnsubscribe?.();
+    };
   }, [configured]);
 
   const handleSignOut = useCallback(async () => {

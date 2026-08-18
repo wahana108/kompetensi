@@ -4,3 +4,4 @@ export const LOGIN_PATH = "/login";
 export const REGISTER_PATH = "/register";
 export const DASHBOARD_PATH = "/dashboard";
 export const ADMIN_PATH = "/admin";
+export const PENDING_PATH = "/pending";

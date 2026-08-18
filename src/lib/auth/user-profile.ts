@@ -1,9 +1,13 @@
 import type { User } from "firebase/auth";
 import type { DocumentData } from "firebase/firestore";
-import type { UserProfile, UserRole } from "@/types";
+import type { UserInvitation, UserProfile, UserRole, UserStatus } from "@/types";
 import { isUserRole } from "./roles";
 
 export const DEFAULT_USER_ROLE: UserRole = "pegawai";
+
+function isUserStatus(value: unknown): value is UserStatus {
+  return value === "pending" || value === "aktif" || value === "nonaktif";
+}
 
 export function mapUserProfile(id: string, data: DocumentData): UserProfile {
   return {
@@ -16,6 +20,9 @@ export function mapUserProfile(id: string, data: DocumentData): UserProfile {
     photoURL: typeof data.photoURL === "string" ? data.photoURL : null,
     nip: typeof data.nip === "string" ? data.nip : null,
     role: isUserRole(data.role) ? data.role : DEFAULT_USER_ROLE,
+    // Data lama (sebelum field ini ada) dianggap "aktif" — jangan mengunci
+    // akun yang sudah berjalan hanya karena field baru belum terisi.
+    status: isUserStatus(data.status) ? data.status : "aktif",
     supervisorId:
       typeof data.supervisorId === "string" ? data.supervisorId : null,
     unitKerjaId: typeof data.unitKerjaId === "string" ? data.unitKerjaId : null,
@@ -32,6 +39,7 @@ export function mapUserProfile(id: string, data: DocumentData): UserProfile {
   };
 }
 
+/** Pendaftaran mode "terbuka" (atau tanpa undangan cocok): status pending, role default. */
 export function buildDefaultProfile(user: User, now: string): UserProfile {
   return {
     id: user.uid,
@@ -40,9 +48,38 @@ export function buildDefaultProfile(user: User, now: string): UserProfile {
     photoURL: user.photoURL,
     nip: null,
     role: DEFAULT_USER_ROLE,
+    status: "pending",
     supervisorId: null,
     unitKerjaId: null,
     jabatanId: null,
+    pangkatId: null,
+    tusiIds: [],
+    isActive: true,
+    createdAt: now,
+    updatedAt: now,
+    createdBy: user.uid,
+    updatedBy: user.uid,
+  };
+}
+
+/** Pendaftaran mode "tertutup" dengan undangan valid: status langsung aktif. */
+export function buildInvitedProfile(
+  user: User,
+  invitation: UserInvitation,
+  now: string
+): UserProfile {
+  return {
+    id: user.uid,
+    email: user.email ?? invitation.email,
+    displayName:
+      user.displayName?.trim() || invitation.namaLengkap || user.email || "Pegawai",
+    photoURL: user.photoURL,
+    nip: null,
+    role: invitation.role,
+    status: "aktif",
+    supervisorId: invitation.supervisorId,
+    unitKerjaId: invitation.unitKerjaId,
+    jabatanId: invitation.jabatanId,
     pangkatId: null,
     tusiIds: [],
     isActive: true,

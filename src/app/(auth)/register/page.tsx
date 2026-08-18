@@ -17,12 +17,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 
 export default function RegisterPage() {
-  const { configured, registerWithEmail } = useAuth();
+  const { configured, registerWithEmail, error: authError } = useAuth();
   const [error, setError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
   const [pending, setPending] = useState(false);
+  const displayError = success ? null : (error ?? authError);
 
   async function handleRegister(formData: FormData) {
     setError(null);
+    setSuccess(false);
     setPending(true);
 
     try {
@@ -31,6 +34,10 @@ export default function RegisterPage() {
         String(formData.get("password") ?? ""),
         String(formData.get("displayName") ?? "")
       );
+      // Berhasil — AuthGate akan mengalihkan begitu profil baru terbaca
+      // (ke /pending atau /dashboard). Pesan ini tampil sebentar di antara
+      // waktu itu supaya pengguna tahu pendaftarannya jalan, bukan diam.
+      setSuccess(true);
     } catch (registerError) {
       setError(mapAuthError(registerError));
     } finally {
@@ -61,9 +68,15 @@ export default function RegisterPage() {
             </p>
           ) : null}
 
-          {error ? (
+          {success ? (
+            <p className="rounded-md border border-green-600/30 bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40 dark:text-green-300">
+              Pendaftaran berhasil! Mengalihkan...
+            </p>
+          ) : null}
+
+          {displayError ? (
             <p className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
+              {displayError}
             </p>
           ) : null}
 
@@ -80,7 +93,7 @@ export default function RegisterPage() {
                 id="displayName"
                 name="displayName"
                 autoComplete="name"
-                disabled={!configured || pending}
+                disabled={!configured || pending || success}
               />
             </div>
             <div className="space-y-1.5">
@@ -91,7 +104,7 @@ export default function RegisterPage() {
                 type="email"
                 autoComplete="email"
                 required
-                disabled={!configured || pending}
+                disabled={!configured || pending || success}
               />
             </div>
             <div className="space-y-1.5">
@@ -103,7 +116,7 @@ export default function RegisterPage() {
                 autoComplete="new-password"
                 minLength={6}
                 required
-                disabled={!configured || pending}
+                disabled={!configured || pending || success}
               />
             </div>
             <Button type="submit" className="w-full" disabled={!configured || pending}>

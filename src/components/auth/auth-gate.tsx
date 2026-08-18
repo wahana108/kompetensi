@@ -46,7 +46,7 @@ function AuthGateInner({
       return;
     }
 
-    if (profile && !profile.isActive) {
+    if (profile && (!profile.isActive || profile.status === "nonaktif")) {
       void signOutCurrentUser();
       router.replace(`${LOGIN_PATH}?error=inactive`);
       return;

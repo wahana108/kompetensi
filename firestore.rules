@@ -10,8 +10,12 @@ service cloud.firestore {
       return /databases/$(database)/documents/users/$(request.auth.uid);
     }
 
+    // Akun harus terdaftar DAN berstatus "aktif" untuk punya hak berbasis
+    // role di mana pun (isAdmin/isSuperAdmin/isModerator). Akun "pending"
+    // atau "nonaktif" kehilangan seluruh hak admin walau role-nya masih
+    // tersimpan di dokumen.
     function userExists() {
-      return isSignedIn() && exists(userPath());
+      return isSignedIn() && exists(userPath()) && userData().status == 'aktif';
     }
 
     function userData() {
@@ -44,12 +48,42 @@ service cloud.firestore {
         && get(/databases/$(database)/documents/users/$(employeeId)).data.supervisorId == request.auth.uid;
     }
 
+    function invitationRef(email) {
+      return /databases/$(database)/documents/user_invitations/$(email);
+    }
+
+    // Mode pendaftaran "tertutup": undangan cocok kalau ada, belum dipakai,
+    // dan role yang diminta sama persis dengan yang diundang admin.
+    function hasUsableInvitation(email, role) {
+      return exists(invitationRef(email))
+        && get(invitationRef(email)).data.usedAt == null
+        && get(invitationRef(email)).data.role == role;
+    }
+
+    function isOwnInvitation(email) {
+      return isSignedIn()
+        && request.auth.token.email != null
+        && request.auth.token.email.lower() == email;
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isModerator()
         || (isSignedIn() && resource.data.supervisorId == request.auth.uid);
+      // Dua jalur pendaftaran mandiri (client menulis dokumennya sendiri):
+      // 1. Mode "terbuka" (atau tanpa undangan cocok): role dipaksa 'pegawai',
+      //    status dipaksa 'pending' — tidak bisa self-elevate.
+      // 2. Mode "tertutup" dengan undangan valid: role & status boleh sesuai
+      //    undangan (termasuk non-'pegawai'), status langsung 'aktif'.
       allow create: if isOwner(userId)
-        && request.resource.data.role == 'pegawai'
-        && request.resource.data.id == userId;
+        && request.resource.data.id == userId
+        && request.resource.data.email == request.auth.token.email.lower()
+        && (
+          (request.resource.data.role == 'pegawai' && request.resource.data.status == 'pending')
+          || (
+            request.resource.data.status == 'aktif'
+            && hasUsableInvitation(request.resource.data.email, request.resource.data.role)
+          )
+        );
       allow update: if isSuperAdmin()
         || (
           isAdmin()
@@ -61,9 +95,25 @@ service cloud.firestore {
           isOwner(userId)
           && !request.resource.data.diff(resource.data)
             .affectedKeys()
-            .hasAny(['role', 'id', 'supervisorId'])
+            .hasAny(['role', 'id', 'supervisorId', 'status'])
         );
       allow delete: if false;
+    }
+
+    // ID dokumen = email huruf kecil. "hanya admin" untuk kelola undangan
+    // secara umum; pengecualian sempit: pendaftar boleh MEMBACA undangan
+    // miliknya sendiri (dipakai saat cek kelayakan sebelum daftar) dan
+    // menandai usedAt milik sendiri (bagian dari alur pendaftaran, sekali
+    // jalan dari null -> terisi, tidak bisa mengubah field lain).
+    match /user_invitations/{email} {
+      allow read: if isAdmin() || isOwnInvitation(email);
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin()
+        || (
+          isOwnInvitation(email)
+          && resource.data.usedAt == null
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedAt'])
+        );
     }
 
     match /unit_kerja/{id} {
@@ -113,7 +163,7 @@ service cloud.firestore {
 
     match /system_parameters/{id} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      allow write: if isSuperAdmin();
     }
 
     match /assessment_periods/{id} {

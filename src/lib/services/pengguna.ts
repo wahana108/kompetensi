@@ -108,6 +108,52 @@ export async function listPengguna(): Promise<UserProfile[]> {
   );
 }
 
+export async function listPendingUsers(): Promise<UserProfile[]> {
+  const db = requireDb();
+  const snapshot = await getDocs(
+    query(collection(db, COLLECTIONS.users), where("status", "==", "pending"))
+  );
+
+  return snapshot.docs
+    .map((item) => mapUserProfile(item.id, item.data()))
+    .sort((a, b) => (a.createdAt ?? "").localeCompare(b.createdAt ?? ""));
+}
+
+export type ApproveUserInput = {
+  unitKerjaId: string | null;
+  jabatanId: string | null;
+  supervisorId: string | null;
+};
+
+export async function approveUser(
+  id: string,
+  placement: ApproveUserInput,
+  actorId: string
+): Promise<void> {
+  const db = requireDb();
+  const now = new Date().toISOString();
+
+  await updateDoc(doc(db, COLLECTIONS.users, id), {
+    status: "aktif",
+    unitKerjaId: placement.unitKerjaId,
+    jabatanId: placement.jabatanId,
+    supervisorId: placement.supervisorId,
+    updatedAt: now,
+    updatedBy: actorId,
+  });
+}
+
+export async function rejectUser(id: string, actorId: string): Promise<void> {
+  const db = requireDb();
+  const now = new Date().toISOString();
+
+  await updateDoc(doc(db, COLLECTIONS.users, id), {
+    status: "nonaktif",
+    updatedAt: now,
+    updatedBy: actorId,
+  });
+}
+
 export async function listSubordinates(
   supervisorId: string
 ): Promise<UserProfile[]> {

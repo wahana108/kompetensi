@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogOut, Menu, UserRound, X } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import { usePendingUserList } from "@/hooks/use-pengguna";
 import { getRoleLabel } from "@/lib/auth/roles";
 import { cn } from "@/lib/utils";
 import {
@@ -29,8 +30,10 @@ import { Separator } from "@/components/ui/separator";
 export function AdminShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { profile, signOut } = useAuth();
+  const pendingUsers = usePendingUserList();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const page = getAdminPageMeta(pathname);
+  const badgeCounts = { pendingUsers: pendingUsers.items.length };
 
   useEffect(() => {
     setSidebarOpen(false);
@@ -100,6 +103,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                   label={item.label}
                   icon={item.icon}
                   active={isAdminNavActive(pathname, item.href, item.exact)}
+                  badgeCount={item.badgeKey ? badgeCounts[item.badgeKey] : undefined}
                 />
               );
             }
@@ -116,6 +120,7 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
                     label={child.label}
                     icon={child.icon}
                     active={isAdminNavActive(pathname, child.href, child.exact)}
+                    badgeCount={child.badgeKey ? badgeCounts[child.badgeKey] : undefined}
                   />
                 ))}
               </div>
@@ -218,11 +223,13 @@ function AdminNavLink({
   label,
   icon: Icon,
   active,
+  badgeCount,
 }: {
   href: string;
   label: string;
   icon: React.ComponentType<{ className?: string }>;
   active: boolean;
+  badgeCount?: number;
 }) {
   return (
     <Link
@@ -235,7 +242,12 @@ function AdminNavLink({
       )}
     >
       <Icon className="size-4 shrink-0" />
-      <span className="truncate">{label}</span>
+      <span className="flex-1 truncate">{label}</span>
+      {badgeCount ? (
+        <Badge variant="destructive" className="h-5 min-w-5 justify-center px-1">
+          {badgeCount}
+        </Badge>
+      ) : null}
     </Link>
   );
 }

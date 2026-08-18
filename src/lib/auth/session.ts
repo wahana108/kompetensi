@@ -1,5 +1,6 @@
 import {
   createUserWithEmailAndPassword,
+  deleteUser,
   GoogleAuthProvider,
   signInWithEmailAndPassword,
   signInWithPopup,
@@ -7,9 +8,15 @@ import {
   updateProfile,
   type User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc, updateDoc } from "firebase/firestore";
+import { doc, getDoc, updateDoc, writeBatch } from "firebase/firestore";
 import { getClientAuth, getClientDb, isFirebaseConfigured } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/collections";
+import { getSystemParameters } from "@/lib/services/system-parameter";
+import {
+  getInvitationByEmail,
+  markInvitationUsedInBatch,
+  normalizeEmail,
+} from "@/lib/services/user-invitation";
 import type { AuthSession, UserProfile, UserRole } from "@/types";
 import {
   ADMIN_PATH,
@@ -21,7 +28,14 @@ import {
 } from "./constants";
 import { mapAuthError } from "./errors";
 import { canAccessAdmin, getPostLoginPath } from "./roles";
-import { buildDefaultProfile, mapUserProfile } from "./user-profile";
+import { buildDefaultProfile, buildInvitedProfile, mapUserProfile } from "./user-profile";
+
+export class RegistrationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RegistrationError";
+  }
+}
 
 export {
   ADMIN_PATH,
@@ -75,21 +89,66 @@ export async function fetchUserProfile(uid: string): Promise<UserProfile | null>
   return mapUserProfile(snapshot.id, snapshot.data());
 }
 
-export async function ensureUserProfile(user: User): Promise<UserProfile> {
+/**
+ * SATU-SATUNYA tempat yang membuat dokumen users/{uid} baru. Dipanggil dari
+ * registerWithEmail() dan signInWithGoogle() (login Google pertama kali —
+ * itu juga "pendaftaran", tidak ada form daftar terpisah untuk Google).
+ * `auth-provider.tsx` TIDAK PERNAH memanggil ini — dia cuma membaca profil
+ * lewat `onSnapshot`, supaya tidak pernah ada dua penulis yang balapan
+ * menulis dokumen users/{uid} yang sama (itu akar race condition sebelumnya:
+ * onAuthStateChanged di auth-provider dan registerWithEmail sama-sama
+ * memanggil pembuat profil untuk event sign-up yang sama).
+ */
+async function createProfileForNewAccount(user: User): Promise<UserProfile> {
+  const db = requireFirebaseDb();
+  const ref = doc(db, COLLECTIONS.users, user.uid);
+  const now = new Date().toISOString();
+
+  let built: { profile: UserProfile; invitationEmail: string | null };
+
+  try {
+    built = await buildNewProfile(user, now);
+  } catch (error) {
+    await rollbackFailedRegistration(user);
+    throw error;
+  }
+
+  try {
+    const batch = writeBatch(db);
+    batch.set(ref, built.profile);
+    if (built.invitationEmail) {
+      markInvitationUsedInBatch(batch, db, built.invitationEmail, now);
+    }
+    await batch.commit();
+  } catch (error) {
+    await rollbackFailedRegistration(user);
+    throw error;
+  }
+
+  return built.profile;
+}
+
+/** Login Google: buat profil kalau ini kali pertama, atau sinkronkan kalau sudah ada. */
+async function getOrCreateProfileForSignIn(user: User): Promise<UserProfile> {
   const db = requireFirebaseDb();
   const ref = doc(db, COLLECTIONS.users, user.uid);
   const snapshot = await getDoc(ref);
-  const now = new Date().toISOString();
 
   if (!snapshot.exists()) {
-    const profile = buildDefaultProfile(user, now);
-    await setDoc(ref, profile);
-    return profile;
+    return createProfileForNewAccount(user);
   }
 
-  const existing = mapUserProfile(snapshot.id, snapshot.data());
-  const nextDisplayName =
-    user.displayName?.trim() || existing.displayName;
+  return syncExistingProfile(user, ref, mapUserProfile(snapshot.id, snapshot.data()));
+}
+
+/** Menyamakan displayName/email/photoURL dari Firebase Auth ke profil Firestore yang sudah ada. */
+async function syncExistingProfile(
+  user: User,
+  ref: ReturnType<typeof doc>,
+  existing: UserProfile
+): Promise<UserProfile> {
+  const now = new Date().toISOString();
+  const nextDisplayName = user.displayName?.trim() || existing.displayName;
   const nextEmail = user.email ?? existing.email;
   const nextPhotoURL = user.photoURL ?? existing.photoURL;
 
@@ -98,26 +157,101 @@ export async function ensureUserProfile(user: User): Promise<UserProfile> {
     nextEmail !== existing.email ||
     nextPhotoURL !== existing.photoURL;
 
-  if (changed) {
-    await updateDoc(ref, {
-      displayName: nextDisplayName,
-      email: nextEmail,
-      photoURL: nextPhotoURL,
-      updatedAt: now,
-      updatedBy: user.uid,
-    });
+  if (!changed) {
+    return existing;
+  }
+
+  await updateDoc(ref, {
+    displayName: nextDisplayName,
+    email: nextEmail,
+    photoURL: nextPhotoURL,
+    updatedAt: now,
+    updatedBy: user.uid,
+  });
+
+  return {
+    ...existing,
+    displayName: nextDisplayName,
+    email: nextEmail,
+    photoURL: nextPhotoURL,
+    updatedAt: now,
+    updatedBy: user.uid,
+  };
+}
+
+/**
+ * Menentukan profil untuk akun yang BENAR-BENAR baru (dokumen users/{uid}
+ * belum ada). Dicek terhadap parameter sistem (domain + mode pendaftaran)
+ * satu kali di sini — bukan di tempat lain — supaya berlaku sama baik lewat
+ * form daftar maupun login Google pertama kali.
+ */
+async function buildNewProfile(
+  user: User,
+  now: string
+): Promise<{ profile: UserProfile; invitationEmail: string | null }> {
+  const email = normalizeEmail(user.email ?? "");
+  if (!email) {
+    throw new RegistrationError("Akun tidak memiliki alamat email yang valid.");
+  }
+
+  const params = await getSystemParameters();
+
+  if (params.domainDiizinkan.length > 0) {
+    const domain = email.split("@")[1] ?? "";
+    if (!params.domainDiizinkan.includes(domain)) {
+      throw new RegistrationError(
+        `Domain email "${domain}" tidak diizinkan mendaftar. Domain yang diizinkan: ${params.domainDiizinkan.join(", ")}.`
+      );
+    }
+  }
+
+  if (params.modePendaftaran === "tertutup") {
+    const invitation = await getInvitationByEmail(email);
+    if (!invitation || invitation.usedAt) {
+      throw new RegistrationError(
+        "Email ini belum diundang admin. Hubungi admin untuk didaftarkan terlebih dahulu."
+      );
+    }
 
     return {
-      ...existing,
-      displayName: nextDisplayName,
-      email: nextEmail,
-      photoURL: nextPhotoURL,
-      updatedAt: now,
-      updatedBy: user.uid,
+      profile: buildInvitedProfile(user, invitation, now),
+      invitationEmail: email,
     };
   }
 
-  return existing;
+  return { profile: buildDefaultProfile(user, now), invitationEmail: null };
+}
+
+/**
+ * Rollback kalau gagal lolos gerbang pendaftaran, supaya akun Auth tidak
+ * menggantung tanpa profil. Pengaman berlapis: dicek dulu apakah
+ * users/{uid} SUDAH tersimpan sebelum menghapus akunnya — kalau sudah ada,
+ * JANGAN dihapus (menghapus akun yang sudah punya profil valid selalu
+ * salah), cukup dicatat untuk pemeriksaan manual.
+ */
+async function rollbackFailedRegistration(user: User): Promise<void> {
+  try {
+    const db = requireFirebaseDb();
+    const snapshot = await getDoc(doc(db, COLLECTIONS.users, user.uid));
+    if (snapshot.exists()) {
+      console.error(
+        `[auth] Pendaftaran user ${user.uid} gagal setelah profilnya sudah tersimpan — akun TIDAK dihapus untuk menghindari kehilangan profil valid. Periksa manual.`
+      );
+      return;
+    }
+  } catch {
+    // Pengecekan sendiri gagal — lanjut ke percobaan hapus di bawah sebagai upaya terakhir.
+  }
+
+  try {
+    await deleteUser(user);
+  } catch {
+    try {
+      await signOut(requireFirebaseAuth());
+    } catch {
+      // Abaikan — sudah upaya terbaik.
+    }
+  }
 }
 
 export async function getClientSession(): Promise<AuthSession | null> {
@@ -130,10 +264,30 @@ export async function getClientSession(): Promise<AuthSession | null> {
   return toAuthSession(profile);
 }
 
+/**
+ * Login biasa TIDAK PERNAH membuat profil baru — kalau users/{uid} belum
+ * ada, itu anomali (akun Auth ada tapi profilnya hilang/belum dibuat),
+ * bukan pendaftaran. Membiarkan login membuat profil akan membuka jalan
+ * pintas yang melewati gerbang domain/undangan di buildNewProfile().
+ */
 export async function signInWithEmail(email: string, password: string) {
   const auth = requireFirebaseAuth();
   const credential = await signInWithEmailAndPassword(auth, email, password);
-  const profile = await ensureUserProfile(credential.user);
+  const db = requireFirebaseDb();
+  const ref = doc(db, COLLECTIONS.users, credential.user.uid);
+  const snapshot = await getDoc(ref);
+
+  if (!snapshot.exists()) {
+    throw new RegistrationError(
+      "Profil pengguna untuk akun ini tidak ditemukan. Hubungi admin."
+    );
+  }
+
+  const profile = await syncExistingProfile(
+    credential.user,
+    ref,
+    mapUserProfile(snapshot.id, snapshot.data())
+  );
   setAuthCookies(profile.role);
   return { user: credential.user, profile };
 }
@@ -143,7 +297,7 @@ export async function signInWithGoogle() {
   const provider = new GoogleAuthProvider();
   provider.setCustomParameters({ prompt: "select_account" });
   const credential = await signInWithPopup(auth, provider);
-  const profile = await ensureUserProfile(credential.user);
+  const profile = await getOrCreateProfileForSignIn(credential.user);
   setAuthCookies(profile.role);
   return { user: credential.user, profile };
 }
@@ -154,14 +308,18 @@ export async function registerWithEmail(
   displayName?: string
 ) {
   const auth = requireFirebaseAuth();
-  const credential = await createUserWithEmailAndPassword(auth, email, password);
+  const credential = await createUserWithEmailAndPassword(
+    auth,
+    normalizeEmail(email),
+    password
+  );
   const name = displayName?.trim();
 
   if (name) {
     await updateProfile(credential.user, { displayName: name });
   }
 
-  const profile = await ensureUserProfile(credential.user);
+  const profile = await createProfileForNewAccount(credential.user);
   setAuthCookies(profile.role);
   return { user: credential.user, profile };
 }

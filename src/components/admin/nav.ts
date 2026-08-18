@@ -10,7 +10,9 @@ import {
   LayoutDashboard,
   Medal,
   ScrollText,
+  Settings,
   Target,
+  UserCheck,
   Users,
 } from "lucide-react";
 
@@ -43,6 +45,8 @@ export const ADMIN_ROUTES = {
   periodeEdit: (id: string) => `/admin/periode/${id}`,
   pengguna: "/admin/pengguna",
   penggunaEdit: (id: string) => `/admin/pengguna/${id}`,
+  persetujuanAkun: "/admin/persetujuan-akun",
+  parameter: "/admin/parameter",
   tna: "/admin/tna",
   tnaDetail: (id: string) => `/admin/tna/${id}`,
 } as const;
@@ -53,6 +57,8 @@ export type AdminNavLink = {
   label: string;
   icon: LucideIcon;
   exact?: boolean;
+  /** Kunci badge jumlah dinamis, dihitung di AdminShell. */
+  badgeKey?: "pendingUsers";
 };
 
 export type AdminNavGroup = {
@@ -76,6 +82,19 @@ export const ADMIN_NAV: AdminNavItem[] = [
     href: ADMIN_ROUTES.pengguna,
     label: "Pengguna",
     icon: Users,
+  },
+  {
+    type: "link",
+    href: ADMIN_ROUTES.persetujuanAkun,
+    label: "Persetujuan Akun",
+    icon: UserCheck,
+    badgeKey: "pendingUsers",
+  },
+  {
+    type: "link",
+    href: ADMIN_ROUTES.parameter,
+    label: "Parameter Sistem",
+    icon: Settings,
   },
   {
     type: "group",
@@ -346,6 +365,20 @@ export function getAdminPageMeta(pathname: string): {
     return {
       title: "Edit Pengguna",
       description: "Ubah role dan penempatan",
+    };
+  }
+
+  if (pathname === ADMIN_ROUTES.persetujuanAkun) {
+    return {
+      title: "Persetujuan Akun",
+      description: "Undang pengguna dan setujui pendaftaran baru",
+    };
+  }
+
+  if (pathname === ADMIN_ROUTES.parameter) {
+    return {
+      title: "Parameter Sistem",
+      description: "Bobot skor, ambang pelatihan, dan mode pendaftaran",
     };
   }
 

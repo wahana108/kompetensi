@@ -448,6 +448,29 @@ async function main() {
     updatedBy: IDS.user.admin,
   });
 
+  // --- Parameter sistem (nilai default) ---
+  set("system_parameters", "global", {
+    id: "global",
+    bobotAtasan: 0.7,
+    bobotSelf: 0.3,
+    ambangButuhPelatihan: 1.0,
+    skalaMaksimum: 5,
+    labelSkala: [
+      "Sangat Tidak Mampu",
+      "Tidak Mampu",
+      "Cukup",
+      "Mampu",
+      "Sangat Mampu",
+    ],
+    modePendaftaran: "tertutup",
+    domainDiizinkan: [],
+    namaInstansi: "Instansi Uji Coba",
+    ambangValidasiTes: 70,
+    modeValidasiTes: "informasi",
+    updatedAt: now,
+    updatedBy: IDS.user.admin,
+  });
+
   // --- Pengguna ---
   set("users", IDS.user.admin, {
     id: IDS.user.admin,
@@ -456,6 +479,7 @@ async function main() {
     photoURL: null,
     nip: null,
     role: "super_admin",
+    status: "aktif",
     supervisorId: null,
     unitKerjaId: IDS.unitKerja,
     jabatanId: null,
@@ -475,6 +499,7 @@ async function main() {
     photoURL: null,
     nip: null,
     role: "pegawai",
+    status: "aktif",
     supervisorId: null,
     unitKerjaId: IDS.unitKerja,
     jabatanId: IDS.jabatan.kasubbag,
@@ -494,6 +519,7 @@ async function main() {
     photoURL: null,
     nip: null,
     role: "pegawai",
+    status: "aktif",
     supervisorId: IDS.user.atasan,
     unitKerjaId: IDS.unitKerja,
     jabatanId: IDS.jabatan.kasubbag,
@@ -513,6 +539,7 @@ async function main() {
     photoURL: null,
     nip: null,
     role: "pegawai",
+    status: "aktif",
     supervisorId: IDS.user.atasan,
     unitKerjaId: IDS.unitKerja,
     jabatanId: IDS.jabatan.staf,
