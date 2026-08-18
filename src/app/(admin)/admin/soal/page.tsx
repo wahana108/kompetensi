@@ -2,10 +2,20 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { MoreHorizontal, Plus, Search, Sparkles } from "lucide-react";
+import {
+  AlertTriangle,
+  KeyRound,
+  MoreHorizontal,
+  Plus,
+  Search,
+  Sparkles,
+} from "lucide-react";
 import { toast } from "sonner";
+import { isSuperAdmin } from "@/lib/auth/roles";
+import { useAssessmentPeriodList } from "@/hooks/use-assessment-period";
 import { useAuth } from "@/hooks/use-auth";
 import { useKompetensiList } from "@/hooks/use-kompetensi";
+import { useQuestionAnswerKeyList } from "@/hooks/use-question-answer-key";
 import { useQuestionList } from "@/hooks/use-question";
 import { useTusiList } from "@/hooks/use-tusi";
 import { ADMIN_ROUTES } from "@/components/admin/nav";
@@ -57,6 +67,11 @@ import {
   mapQuestionError,
   setQuestionActive,
 } from "@/lib/services/question";
+import {
+  countStaleAnswerKeys,
+  mapQuestionAnswerKeyError,
+  refreshAnswerKeysToPeriod,
+} from "@/lib/services/question-answer-key";
 import { cn } from "@/lib/utils";
 import type { Kompetensi, Question, QuestionType, Tusi } from "@/types";
 
@@ -68,6 +83,8 @@ export default function SoalListPage() {
   const questions = useQuestionList();
   const kompetensi = useKompetensiList();
   const tusi = useTusiList();
+  const periods = useAssessmentPeriodList();
+  const answerKeys = useQuestionAnswerKeyList();
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState<StatusFilter>("all");
   const [type, setType] = useState<TypeFilter>("all");
@@ -76,6 +93,14 @@ export default function SoalListPage() {
   const [deactivateTarget, setDeactivateTarget] = useState<Question | null>(
     null
   );
+  const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const activePeriod = periods.items.find((item) => item.status === "active") ?? null;
+  const staleKeyCount = activePeriod
+    ? countStaleAnswerKeys(answerKeys.items, activePeriod.id)
+    : 0;
+  const canRefreshKeys = isSuperAdmin(profile?.role);
 
   const kompetensiItems = useMemo(
     () => [
@@ -134,6 +159,33 @@ export default function SoalListPage() {
     }
   }
 
+  async function handleRefreshKeys() {
+    if (!profile || !activePeriod) {
+      return;
+    }
+
+    setRefreshing(true);
+
+    try {
+      const result = await refreshAnswerKeysToPeriod(
+        activePeriod.id,
+        profile.id,
+        profile.role
+      );
+      toast.success(
+        result.updatedCount > 0
+          ? `${result.updatedCount} kunci jawaban diperbarui ke ${activePeriod.name}.`
+          : "Semua kunci jawaban sudah menunjuk periode aktif."
+      );
+      await answerKeys.reload();
+    } catch (refreshError) {
+      toast.error(mapQuestionAnswerKeyError(refreshError));
+    } finally {
+      setRefreshing(false);
+      setRefreshConfirmOpen(false);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -144,7 +196,22 @@ export default function SoalListPage() {
               Pertanyaan penilaian. Penyusunan kuesioner lengkap belum dibuat.
             </CardDescription>
           </div>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            {canRefreshKeys && activePeriod ? (
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRefreshConfirmOpen(true)}
+              >
+                <KeyRound />
+                Segarkan Kunci Jawaban
+                {staleKeyCount > 0 ? (
+                  <Badge variant="destructive" className="ml-0.5">
+                    {staleKeyCount}
+                  </Badge>
+                ) : null}
+              </Button>
+            ) : null}
             <Link
               href={ADMIN_ROUTES.soalImport}
               className={buttonVariants({ variant: "outline" })}
@@ -159,6 +226,35 @@ export default function SoalListPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
+          {activePeriod && staleKeyCount > 0 ? (
+            <div className="flex items-start gap-2 rounded-md border border-amber-600/30 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <p>
+                  Ada {staleKeyCount} kunci jawaban yang masih menunjuk
+                  periode lama. Tes Pengetahuan tidak akan bisa dinilai
+                  sampai kunci disegarkan.
+                </p>
+                {canRefreshKeys ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    disabled={refreshing}
+                    onClick={() => setRefreshConfirmOpen(true)}
+                  >
+                    Segarkan Sekarang
+                  </Button>
+                ) : (
+                  <p className="text-xs">
+                    Hanya Super Admin yang bisa menjalankan ini — hubungi
+                    Super Admin.
+                  </p>
+                )}
+              </div>
+            </div>
+          ) : null}
+
           <div className="flex flex-col gap-2 lg:flex-row lg:items-center">
             <div className="relative flex-1">
               <Search className="pointer-events-none absolute top-1/2 left-2.5 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -404,6 +500,44 @@ export default function SoalListPage() {
               }}
             >
               Nonaktifkan
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={refreshConfirmOpen}
+        onOpenChange={(open) => {
+          if (!open && !refreshing) {
+            setRefreshConfirmOpen(false);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Segarkan kunci jawaban?</DialogTitle>
+            <DialogDescription>
+              {staleKeyCount} dari {answerKeys.items.length} kunci jawaban
+              akan ditulis ulang ke periode aktif (
+              {activePeriod?.name ?? "—"}). Soalnya sendiri tidak berubah,
+              hanya kunci jawabannya.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={refreshing}
+              onClick={() => setRefreshConfirmOpen(false)}
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              disabled={refreshing || !activePeriod}
+              onClick={() => void handleRefreshKeys()}
+            >
+              {refreshing ? "Menyegarkan..." : "Segarkan Sekarang"}
             </Button>
           </DialogFooter>
         </DialogContent>
