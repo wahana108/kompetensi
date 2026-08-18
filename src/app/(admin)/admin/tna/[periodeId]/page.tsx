@@ -587,14 +587,15 @@ function EmployeeDetailDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-lg space-y-4">
-        <DialogHeader>
+      <DialogContent className="flex max-h-[85vh] w-full max-w-lg flex-col overflow-hidden p-0">
+        <DialogHeader className="shrink-0 border-b p-4">
           <DialogTitle>Detail Penilaian & Usulan Pelatihan</DialogTitle>
           <DialogDescription>
             Informasi lengkap penilaian kompetensi pegawai.
           </DialogDescription>
         </DialogHeader>
 
+        <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
         {/* Profil Singkat */}
         <div className="rounded-lg border bg-muted/40 p-3 space-y-2 text-xs">
           <div className="flex justify-between">
@@ -698,6 +699,7 @@ function EmployeeDetailDialog({
               </p>
             )}
           </div>
+        </div>
         </div>
       </DialogContent>
     </Dialog>

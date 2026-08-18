@@ -282,8 +282,11 @@ export default function SoalListPage() {
                       <TableCell className="tabular-nums">
                         {item.sortOrder}
                       </TableCell>
-                      <TableCell>
-                        <p className="max-w-sm font-medium text-foreground">
+                      <TableCell className="max-w-sm">
+                        <p
+                          className="truncate font-medium text-foreground"
+                          title={item.text}
+                        >
                           {item.text}
                         </p>
                         <p className="text-xs text-muted-foreground">
