@@ -12,6 +12,7 @@ import { COLLECTIONS } from "@/lib/firebase/collections";
 import { listAssessmentPeriods } from "@/lib/services/assessment-period";
 import { computeEmployeeCompetencyScores } from "@/lib/services/competency-score";
 import { listPengguna } from "@/lib/services/pengguna";
+import { getSystemParameters } from "@/lib/services/system-parameter";
 import { listUnitKerja } from "@/lib/services/unit-kerja";
 import type {
   Assessment,
@@ -190,12 +191,18 @@ export async function generateTnaRecap(
 ): Promise<{ proposalCount: number; recapCount: number }> {
   const db = requireDb();
 
-  // 1. Ambil seluruh data pendukung
-  const [users, units] = await Promise.all([
+  // 1. Ambil seluruh data pendukung (parameter sistem dibaca SATU KALI di sini)
+  const [users, units, params] = await Promise.all([
     listPengguna(),
     listUnitKerja(),
+    getSystemParameters(),
   ]);
   const unitMap = new Map(units.map((u) => [u.id, u]));
+  const weights = {
+    bobotAtasan: params.bobotAtasan,
+    bobotSelf: params.bobotSelf,
+    ambangButuhPelatihan: params.ambangButuhPelatihan,
+  };
 
   // 2. Ambil seluruh assessments untuk periode ini
   const assessmentsSnapshot = await getDocs(
@@ -236,7 +243,8 @@ export async function generateTnaRecap(
     if (employee) {
       const competencyScores = await computeEmployeeCompetencyScores(
         periodId,
-        employee
+        employee,
+        weights
       );
 
       for (const score of competencyScores) {

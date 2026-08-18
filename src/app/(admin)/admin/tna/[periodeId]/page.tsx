@@ -19,7 +19,9 @@ import { useEmployeeCompetencyScores } from "@/hooks/use-competency-score";
 import { useJabatanList } from "@/hooks/use-jabatan";
 import { useKompetensiList } from "@/hooks/use-kompetensi";
 import { usePenggunaList } from "@/hooks/use-pengguna";
+import { useSystemParameters } from "@/hooks/use-system-parameter";
 import { useTnaEmployeeDetails } from "@/hooks/use-tna";
+import { useTestSessionsForPeriod } from "@/hooks/use-test-session";
 import { useUnitKerjaList } from "@/hooks/use-unit-kerja";
 import { ADMIN_ROUTES } from "@/components/admin/nav";
 import { Badge } from "@/components/ui/badge";
@@ -57,7 +59,67 @@ import {
 import { getKompetensiDimensiLabel } from "@/lib/services/kompetensi";
 import { generateTnaRecap, mapTnaError, type TnaEmployeeDetail } from "@/lib/services/tna";
 import { cn } from "@/lib/utils";
-import type { Jabatan, UnitKerja, UserProfile } from "@/types";
+import type { Jabatan, TestSession, UnitKerja, UserProfile } from "@/types";
+import type { CompetencyScoreWeights } from "@/lib/services/competency-score";
+
+type OverallTestValidation = {
+  status: "belum" | "menghitung" | "selesai";
+  persenBenar: number | null;
+  valid: boolean;
+};
+
+function getOverallTestValidation(
+  session: TestSession | null | undefined,
+  ambangValidasiTes: number
+): OverallTestValidation {
+  if (!session) {
+    return { status: "belum", persenBenar: null, valid: false };
+  }
+  if (!session.skorPerKompetensi) {
+    return { status: "menghitung", persenBenar: null, valid: false };
+  }
+
+  const totalBenar = session.skorPerKompetensi.reduce((sum, s) => sum + s.jumlahBenar, 0);
+  const totalSoal = session.skorPerKompetensi.reduce((sum, s) => sum + s.jumlahSoal, 0);
+  const persenBenar = totalSoal > 0 ? Math.round((totalBenar / totalSoal) * 100) : 0;
+
+  return {
+    status: "selesai",
+    persenBenar,
+    valid: persenBenar >= ambangValidasiTes,
+  };
+}
+
+function TestValidationBadge({ result }: { result: OverallTestValidation }) {
+  if (result.status === "belum") {
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        Belum Tes
+      </Badge>
+    );
+  }
+
+  if (result.status === "menghitung") {
+    return (
+      <Badge variant="outline" className="text-muted-foreground">
+        Menghitung...
+      </Badge>
+    );
+  }
+
+  return (
+    <Badge
+      variant={result.valid ? "secondary" : "destructive"}
+      className={cn(
+        "gap-1",
+        result.valid &&
+          "border-green-600/30 text-green-700 bg-green-50 dark:bg-green-950/40 dark:text-green-300"
+      )}
+    >
+      {result.persenBenar}% {result.valid ? "Sesuai" : "Perlu Ditinjau"}
+    </Badge>
+  );
+}
 
 type StatusFilter =
   | "all"
@@ -78,6 +140,27 @@ export default function TnaDetailPage({
   const jabatan = useJabatanList();
   const allUsers = usePenggunaList();
   const { items, loading, error, reload } = useTnaEmployeeDetails(periodeId);
+  const systemParams = useSystemParameters();
+  const testSessions = useTestSessionsForPeriod(periodeId);
+
+  const weights = useMemo(
+    () =>
+      systemParams.item
+        ? {
+            bobotAtasan: systemParams.item.bobotAtasan,
+            bobotSelf: systemParams.item.bobotSelf,
+            ambangButuhPelatihan: systemParams.item.ambangButuhPelatihan,
+          }
+        : undefined,
+    [systemParams.item]
+  );
+
+  const testSessionByEmployee = useMemo(
+    () => new Map(testSessions.items.map((session) => [session.employeeId, session])),
+    [testSessions.items]
+  );
+
+  const showValidasiTesColumn = systemParams.item?.modeValidasiTes === "integrasi";
 
   const [query, setQuery] = useState("");
   const [selectedUnit, setSelectedUnit] = useState<string>("all");
@@ -356,6 +439,9 @@ export default function TnaDetailPage({
                     <TableHead className="min-w-44 text-center">
                       Skor Dimensi Atasan
                     </TableHead>
+                    {showValidasiTesColumn ? (
+                      <TableHead className="text-center">Validasi Tes</TableHead>
+                    ) : null}
                     <TableHead className="min-w-56">Usulan Pelatihan</TableHead>
                     <TableHead className="w-16 text-right">Aksi</TableHead>
                   </TableRow>
@@ -368,6 +454,9 @@ export default function TnaDetailPage({
                       units={units.units}
                       jabatan={jabatan.items}
                       users={allUsers.items}
+                      showValidasiTesColumn={showValidasiTesColumn}
+                      testSession={testSessionByEmployee.get(item.employee.id) ?? null}
+                      ambangValidasiTes={systemParams.item?.ambangValidasiTes ?? 0}
                       onViewDetail={() => setSelectedDetail(item)}
                     />
                   ))}
@@ -386,6 +475,9 @@ export default function TnaDetailPage({
           units={units.units}
           jabatan={jabatan.items}
           users={allUsers.items}
+          weights={weights}
+          testSession={testSessionByEmployee.get(selectedDetail.employee.id) ?? null}
+          ambangValidasiTes={systemParams.item?.ambangValidasiTes ?? 0}
           open={Boolean(selectedDetail)}
           onOpenChange={(open) => {
             if (!open) setSelectedDetail(null);
@@ -401,12 +493,18 @@ function EmployeeTnaRow({
   units,
   jabatan,
   users,
+  showValidasiTesColumn,
+  testSession,
+  ambangValidasiTes,
   onViewDetail,
 }: {
   item: TnaEmployeeDetail;
   units: UnitKerja[];
   jabatan: Jabatan[];
   users: UserProfile[];
+  showValidasiTesColumn: boolean;
+  testSession: TestSession | null;
+  ambangValidasiTes: number;
   onViewDetail: () => void;
 }) {
   const unitId =
@@ -526,6 +624,15 @@ function EmployeeTnaRow({
         )}
       </TableCell>
 
+      {/* Kolom Validasi Tes (opsional, mode integrasi) */}
+      {showValidasiTesColumn ? (
+        <TableCell className="text-center">
+          <TestValidationBadge
+            result={getOverallTestValidation(testSession, ambangValidasiTes)}
+          />
+        </TableCell>
+      ) : null}
+
       {/* Kolom 6: Usulan Pelatihan dari Atasan */}
       <TableCell>
         {note ? (
@@ -553,6 +660,9 @@ function EmployeeDetailDialog({
   units,
   jabatan,
   users,
+  weights,
+  testSession,
+  ambangValidasiTes,
   open,
   onOpenChange,
 }: {
@@ -561,6 +671,9 @@ function EmployeeDetailDialog({
   units: UnitKerja[];
   jabatan: Jabatan[];
   users: UserProfile[];
+  weights: CompetencyScoreWeights | undefined;
+  testSession: TestSession | null;
+  ambangValidasiTes: number;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -677,7 +790,13 @@ function EmployeeDetailDialog({
         </div>
 
         {/* Analisis Gap Kompetensi (hasil hitung sistem) */}
-        <CompetencyGapSection periodId={periodId} employee={item.employee} />
+        <CompetencyGapSection
+          periodId={periodId}
+          employee={item.employee}
+          weights={weights}
+          testSession={testSession}
+          ambangValidasiTes={ambangValidasiTes}
+        />
 
         {/* Usulan Pelatihan */}
         <div className="space-y-1.5 text-xs">
@@ -709,11 +828,21 @@ function EmployeeDetailDialog({
 function CompetencyGapSection({
   periodId,
   employee,
+  weights,
+  testSession,
+  ambangValidasiTes,
 }: {
   periodId: string;
   employee: UserProfile;
+  weights: CompetencyScoreWeights | undefined;
+  testSession: TestSession | null;
+  ambangValidasiTes: number;
 }) {
-  const { items, loading, error } = useEmployeeCompetencyScores(periodId, employee);
+  const { items, loading, error } = useEmployeeCompetencyScores(
+    periodId,
+    employee,
+    weights
+  );
   const kompetensi = useKompetensiList();
 
   const kompetensiById = useMemo(
@@ -756,11 +885,15 @@ function CompetencyGapSection({
                 <TableHead className="text-center">Skor Tercapai</TableHead>
                 <TableHead className="text-center">Gap</TableHead>
                 <TableHead className="text-center">Butuh Pelatihan</TableHead>
+                <TableHead className="text-center">Validasi Tes</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {sorted.map((score) => {
                 const entry = kompetensiById.get(score.kompetensiId);
+                const testResult = testSession?.skorPerKompetensi?.find(
+                  (item) => item.kompetensiId === score.kompetensiId
+                );
 
                 return (
                   <TableRow
@@ -790,6 +923,26 @@ function CompetencyGapSection({
                       ) : (
                         <Badge variant="outline" className="text-muted-foreground">
                           Tidak
+                        </Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-center">
+                      {!testSession || !testResult ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <Badge
+                          variant={
+                            testResult.persenBenar >= ambangValidasiTes
+                              ? "secondary"
+                              : "destructive"
+                          }
+                          className={cn(
+                            testResult.persenBenar >= ambangValidasiTes &&
+                              "border-green-600/30 text-green-700 bg-green-50 dark:bg-green-950/40 dark:text-green-300"
+                          )}
+                        >
+                          {testResult.persenBenar}%{" "}
+                          {testResult.persenBenar >= ambangValidasiTes ? "Sesuai" : "Perlu Ditinjau"}
                         </Badge>
                       )}
                     </TableCell>

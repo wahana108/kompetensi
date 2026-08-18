@@ -1,12 +1,21 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { computeEmployeeCompetencyScores } from "@/lib/services/competency-score";
+import {
+  computeEmployeeCompetencyScores,
+  type CompetencyScoreWeights,
+} from "@/lib/services/competency-score";
 import type { CompetencyScore, UserProfile } from "@/types";
 
+/**
+ * `weights` sebaiknya di-memoize oleh pemanggil (mis. lewat useMemo) —
+ * object baru di setiap render akan memicu reload berulang lewat effect
+ * di bawah.
+ */
 export function useEmployeeCompetencyScores(
   periodId: string | null,
-  employee: UserProfile | null
+  employee: UserProfile | null,
+  weights?: CompetencyScoreWeights
 ) {
   const [items, setItems] = useState<CompetencyScore[]>([]);
   const [loading, setLoading] = useState(true);
@@ -23,7 +32,7 @@ export function useEmployeeCompetencyScores(
     setError(null);
 
     try {
-      setItems(await computeEmployeeCompetencyScores(periodId, employee));
+      setItems(await computeEmployeeCompetencyScores(periodId, employee, weights));
     } catch (loadError) {
       setError(
         loadError instanceof Error
@@ -33,7 +42,7 @@ export function useEmployeeCompetencyScores(
     } finally {
       setLoading(false);
     }
-  }, [periodId, employee]);
+  }, [periodId, employee, weights]);
 
   useEffect(() => {
     void reload();

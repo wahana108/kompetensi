@@ -66,6 +66,23 @@ service cloud.firestore {
         && request.auth.token.email.lower() == email;
     }
 
+    function testSessionRef(employeeId, periodId) {
+      return /databases/$(database)/documents/test_sessions/$(employeeId + '_' + periodId);
+    }
+
+    // Kunci jawaban tes pengetahuan terbuka untuk dibaca HANYA kalau pembaca
+    // sudah submit test_sessions miliknya SENDIRI untuk periode yang SAMA
+    // dengan periode kunci ini (periodeId disimpan di dokumen kunci itu
+    // sendiri, jadi tidak perlu query — cukup satu get() ke ID deterministik
+    // employeeId+'_'+periodeId). Ini per-periode: peserta tes tahun lalu
+    // TIDAK otomatis bisa baca kunci soal tahun ini.
+    function hasSubmittedTestForKey() {
+      return isSignedIn()
+        && resource.data.periodeId is string
+        && exists(testSessionRef(request.auth.uid, resource.data.periodeId))
+        && get(testSessionRef(request.auth.uid, resource.data.periodeId)).data.status == 'submitted';
+    }
+
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isModerator()
         || (isSignedIn() && resource.data.supervisorId == request.auth.uid);
@@ -159,6 +176,43 @@ service cloud.firestore {
     match /questionnaires/{id} {
       allow read: if isSignedIn();
       allow write: if isAdmin();
+    }
+
+    // Kunci jawaban pilihan ganda — TIDAK BOLEH dibaca lewat rule terbuka
+    // seperti questions/. Lihat hasSubmittedTestForKey() di atas.
+    match /question_answer_keys/{questionId} {
+      allow read: if isAdmin() || hasSubmittedTestForKey();
+      allow write: if isAdmin();
+    }
+
+    // ID dokumen = {employeeId}_{periodId}. Ditulis client dalam 2 tahap:
+    // (1) create dengan skorPerKompetensi: null (jawaban mentah dikunci di
+    //     sini, tidak bisa diubah lagi sesudahnya — itulah "satu kali
+    //     pengerjaan"); (2) SATU KALI update null -> nilai skor, dan hanya
+    //     field skor yang boleh berubah pada update itu. Rule ini TIDAK
+    //     bisa memverifikasi skornya benar secara matematis (Firestore
+    //     rules tidak bisa iterasi array + get() per item) — itu dicatat
+    //     sebagai utang teknis di konteks.md, sama seperti A5.
+    match /test_sessions/{sessionId} {
+      allow read: if isSignedIn() && (
+        resource.data.employeeId == request.auth.uid
+        || isAdmin()
+        || isModerator()
+        || isSupervisorOf(resource.data.employeeId)
+      );
+      allow create: if isSignedIn()
+        && sessionId == request.auth.uid + '_' + request.resource.data.periodId
+        && request.resource.data.employeeId == request.auth.uid
+        && request.resource.data.status == 'submitted'
+        && request.resource.data.skorPerKompetensi == null;
+      allow update: if isSignedIn()
+        && resource.data.employeeId == request.auth.uid
+        && resource.data.skorPerKompetensi == null
+        && request.resource.data.skorPerKompetensi != null
+        && request.resource.data.diff(resource.data)
+          .affectedKeys()
+          .hasOnly(['skorPerKompetensi', 'updatedAt']);
+      allow delete: if false;
     }
 
     match /system_parameters/{id} {

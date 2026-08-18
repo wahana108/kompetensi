@@ -16,6 +16,8 @@ export const COLLECTIONS = {
   tnaRecaps: "tna_recaps",
   systemParameters: "system_parameters",
   userInvitations: "user_invitations",
+  questionAnswerKeys: "question_answer_keys",
+  testSessions: "test_sessions",
 } as const;
 
 export type CollectionName = (typeof COLLECTIONS)[keyof typeof COLLECTIONS];

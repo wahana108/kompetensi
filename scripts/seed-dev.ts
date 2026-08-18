@@ -91,6 +91,18 @@ const IDS = {
     k6b: "seed-soal-k6-b",
     yn1: "seed-soal-yn-1",
     yn2: "seed-soal-yn-2",
+    mck1a: "seed-soal-mc-k1-a",
+    mck1b: "seed-soal-mc-k1-b",
+    mck2a: "seed-soal-mc-k2-a",
+    mck2b: "seed-soal-mc-k2-b",
+    mck3a: "seed-soal-mc-k3-a",
+    mck3b: "seed-soal-mc-k3-b",
+    mck4a: "seed-soal-mc-k4-a",
+    mck4b: "seed-soal-mc-k4-b",
+    mck5a: "seed-soal-mc-k5-a",
+    mck5b: "seed-soal-mc-k5-b",
+    mck6a: "seed-soal-mc-k6-a",
+    mck6b: "seed-soal-mc-k6-b",
   },
   periode: "seed-periode-2026",
   user: {
@@ -149,6 +161,25 @@ const YES_NO_SOAL = [
   { id: IDS.soal.yn1, kompetensiId: IDS.kompetensi.k1 },
   { id: IDS.soal.yn2, kompetensiId: IDS.kompetensi.k4 },
 ];
+
+// Dua soal pilihan ganda per kompetensi untuk Tes Pengetahuan (id kompetensi -> [soalA, soalB]).
+const MC_SOAL_BY_KOMPETENSI: Record<string, [string, string]> = {
+  [IDS.kompetensi.k1]: [IDS.soal.mck1a, IDS.soal.mck1b],
+  [IDS.kompetensi.k2]: [IDS.soal.mck2a, IDS.soal.mck2b],
+  [IDS.kompetensi.k3]: [IDS.soal.mck3a, IDS.soal.mck3b],
+  [IDS.kompetensi.k4]: [IDS.soal.mck4a, IDS.soal.mck4b],
+  [IDS.kompetensi.k5]: [IDS.soal.mck5a, IDS.soal.mck5b],
+  [IDS.kompetensi.k6]: [IDS.soal.mck6a, IDS.soal.mck6b],
+};
+
+const MC_OPTIONS: Array<{ value: string; label: string }> = [
+  { value: "opt1", label: "Opsi 1" },
+  { value: "opt2", label: "Opsi 2" },
+  { value: "opt3", label: "Opsi 3" },
+  { value: "opt4", label: "Opsi 4" },
+];
+const MC_CORRECT_VALUE = "opt1";
+const MC_WRONG_VALUE = "opt2";
 
 // levelStandar bervariasi (3 dan 4) antar dua jabatan.
 const STANDAR_KASUBBAG: Record<string, number> = {
@@ -433,6 +464,42 @@ async function main() {
     sortOrder += 10;
   }
 
+  // --- Bank soal: 12 multiple_choice (2 per kompetensi) untuk Tes Pengetahuan,
+  // ditambah kunci jawaban terpisah di question_answer_keys (lihat firestore.rules
+  // untuk kapan kunci ini boleh dibaca pegawai). ---
+  for (const item of KOMPETENSI_LIST) {
+    const [mcA, mcB] = MC_SOAL_BY_KOMPETENSI[item.id];
+    for (const soalId of [mcA, mcB]) {
+      set("questions", soalId, {
+        id: soalId,
+        code: soalId.toUpperCase(),
+        text: `[${item.name}] Soal pengetahuan terkait ${item.name.toLowerCase()}.`,
+        type: "multiple_choice",
+        kompetensiId: item.id,
+        tusiId: null,
+        dimensi: item.dimensi,
+        scaleMin: null,
+        scaleMax: null,
+        options: MC_OPTIONS.map((opt) => ({ ...opt, score: null })),
+        sortOrder,
+        isActive: true,
+        createdAt: now,
+        updatedAt: now,
+        createdBy: IDS.user.admin,
+        updatedBy: IDS.user.admin,
+      });
+      sortOrder += 10;
+
+      set("question_answer_keys", soalId, {
+        questionId: soalId,
+        correctValue: MC_CORRECT_VALUE,
+        periodeId: IDS.periode,
+        updatedAt: now,
+        updatedBy: IDS.user.admin,
+      });
+    }
+  }
+
   // --- Periode penilaian aktif ---
   set("assessment_periods", IDS.periode, {
     id: IDS.periode,
@@ -585,6 +652,20 @@ async function main() {
       "Perlu pelatihan penguatan pengetahuan regulasi dan keterampilan analisis.",
   });
 
+  // --- Tes Pengetahuan (submitted) untuk Pegawai B ---
+  // Sengaja dirancang: K6 punya gap PALING RENDAH (0.30, butuhPelatihan=false)
+  // di antara 6 kompetensi Pegawai B, tapi di sini dibuat GAGAL tes
+  // pengetahuan (0%, di bawah ambangValidasiTes default 70). Ini sinyal
+  // paling berguna untuk atasan: gap kecil dari self+atasan assessment tidak
+  // berarti pengetahuan dasarnya benar-benar sudah memadai. Kompetensi
+  // lainnya dibuat lulus (100%) supaya kontras K6 terlihat jelas di kolom
+  // Validasi Tes.
+  seedKnowledgeTestSession({
+    set,
+    employeeId: IDS.user.pegawaiB,
+    wrongKompetensiIds: [IDS.kompetensi.k6],
+  });
+
   await batch.commit();
   console.log(`[seed-dev] Selesai. ${writeCount} dokumen Firestore ditulis, 4 akun Auth emulator disiapkan.`);
   console.log(`[seed-dev] Login: admin@seed.test / atasan@seed.test / pegawai-a@seed.test / pegawai-b@seed.test — password: ${SEED_PASSWORD}`);
@@ -700,6 +781,54 @@ function seedSupervisorAssessment(input: {
     updatedAt: now,
     createdBy: IDS.user.atasan,
     updatedBy: IDS.user.atasan,
+  });
+}
+
+function seedKnowledgeTestSession(input: {
+  set: (collection: string, id: string, data: Record<string, unknown>) => void;
+  employeeId: string;
+  wrongKompetensiIds: string[];
+}) {
+  const sessionId = `${input.employeeId}_${IDS.periode}`;
+  const answers: Array<{
+    questionId: string;
+    kompetensiId: string;
+    selectedValue: string;
+  }> = [];
+  const skorPerKompetensi: Array<{
+    kompetensiId: string;
+    jumlahBenar: number;
+    jumlahSoal: number;
+    persenBenar: number;
+  }> = [];
+
+  for (const item of KOMPETENSI_LIST) {
+    const [mcA, mcB] = MC_SOAL_BY_KOMPETENSI[item.id];
+    const isWrong = input.wrongKompetensiIds.includes(item.id);
+    const selectedValue = isWrong ? MC_WRONG_VALUE : MC_CORRECT_VALUE;
+
+    for (const soalId of [mcA, mcB]) {
+      answers.push({ questionId: soalId, kompetensiId: item.id, selectedValue });
+    }
+
+    skorPerKompetensi.push({
+      kompetensiId: item.id,
+      jumlahBenar: isWrong ? 0 : 2,
+      jumlahSoal: 2,
+      persenBenar: isWrong ? 0 : 100,
+    });
+  }
+
+  input.set("test_sessions", sessionId, {
+    id: sessionId,
+    employeeId: input.employeeId,
+    periodId: IDS.periode,
+    status: "submitted",
+    answers,
+    skorPerKompetensi,
+    submittedAt: now,
+    createdAt: now,
+    updatedAt: now,
   });
 }
 

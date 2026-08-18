@@ -3,14 +3,19 @@ import {
   doc,
   getDoc,
   getDocs,
-  setDoc,
   updateDoc,
+  writeBatch,
   type DocumentData,
 } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/collections";
+import { getActiveAssessmentPeriod } from "@/lib/services/assessment-period";
 import { getKompetensiById, isKompetensiDimensi } from "@/lib/services/kompetensi";
 import { listKompetensiLevels } from "@/lib/services/kompetensi-level";
+import {
+  deleteQuestionAnswerKeyInBatch,
+  saveQuestionAnswerKeyInBatch,
+} from "@/lib/services/question-answer-key";
 import { getTusiById } from "@/lib/services/tusi";
 import type { KompetensiDimensi, Question, QuestionOption, QuestionType } from "@/types";
 
@@ -42,6 +47,11 @@ export class QuestionError extends Error {
   }
 }
 
+export type MultipleChoiceOptionInput = {
+  value: string;
+  label: string;
+};
+
 export type QuestionWriteInput = {
   text: string;
   code: string;
@@ -51,6 +61,9 @@ export type QuestionWriteInput = {
   dimensi: KompetensiDimensi | null;
   isActive: boolean;
   sortOrder?: number;
+  /** Wajib diisi kalau type === "multiple_choice", diabaikan untuk tipe lain. */
+  multipleChoiceOptions?: MultipleChoiceOptionInput[];
+  multipleChoiceCorrectValue?: string | null;
 };
 
 export function isQuestionType(value: string): value is QuestionType {
@@ -125,6 +138,34 @@ export function normalizeQuestionInput(
     throw new QuestionError("Urutan harus bilangan bulat minimal 1.");
   }
 
+  let multipleChoiceOptions: MultipleChoiceOptionInput[] | undefined;
+  let multipleChoiceCorrectValue: string | null | undefined;
+
+  if (input.type === "multiple_choice") {
+    const options = (input.multipleChoiceOptions ?? [])
+      .map((item) => ({ value: item.value.trim(), label: item.label.trim() }))
+      .filter((item) => item.label.length > 0);
+
+    if (options.length < 2) {
+      throw new QuestionError("Soal pilihan ganda butuh minimal 2 opsi.");
+    }
+
+    const uniqueValues = new Set(options.map((item) => item.value));
+    if (uniqueValues.size !== options.length) {
+      throw new QuestionError("Opsi jawaban tidak boleh duplikat.");
+    }
+
+    const correctValue = input.multipleChoiceCorrectValue?.trim() || null;
+    if (!correctValue || !options.some((item) => item.value === correctValue)) {
+      throw new QuestionError(
+        "Tandai satu opsi sebagai kunci jawaban sebelum menyimpan."
+      );
+    }
+
+    multipleChoiceOptions = options;
+    multipleChoiceCorrectValue = correctValue;
+  }
+
   return {
     text,
     code,
@@ -134,6 +175,8 @@ export function normalizeQuestionInput(
     dimensi,
     isActive: input.isActive,
     sortOrder,
+    multipleChoiceOptions,
+    multipleChoiceCorrectValue,
   };
 }
 
@@ -199,7 +242,7 @@ export async function createQuestion(
     dimensi: normalized.dimensi,
     scaleMin: scale.scaleMin,
     scaleMax: scale.scaleMax,
-    options: resolveOptions(normalized.type),
+    options: resolveOptions(normalized.type, normalized.multipleChoiceOptions),
     sortOrder: normalized.sortOrder ?? nextQuestionSortOrder(items),
     isActive: normalized.isActive,
     createdAt: now,
@@ -208,7 +251,11 @@ export async function createQuestion(
     updatedBy: actorId,
   };
 
-  await setDoc(ref, record);
+  const batch = writeBatch(db);
+  batch.set(ref, record);
+  await applyAnswerKey(batch, db, ref.id, normalized, actorId);
+  await batch.commit();
+
   return record;
 }
 
@@ -231,8 +278,10 @@ export async function updateQuestion(
   const scale = await resolveScaleRange(normalized.type);
   const now = new Date().toISOString();
   const nextSort = normalized.sortOrder ?? existing.sortOrder;
+  const nextOptions = resolveOptions(normalized.type, normalized.multipleChoiceOptions);
 
-  await updateDoc(doc(db, COLLECTIONS.questions, id), {
+  const batch = writeBatch(db);
+  batch.update(doc(db, COLLECTIONS.questions, id), {
     code: normalized.code,
     text: normalized.text,
     type: normalized.type,
@@ -241,12 +290,21 @@ export async function updateQuestion(
     dimensi: normalized.dimensi,
     scaleMin: scale.scaleMin,
     scaleMax: scale.scaleMax,
-    options: resolveOptions(normalized.type),
+    options: nextOptions,
     sortOrder: nextSort,
     isActive: normalized.isActive,
     updatedAt: now,
     updatedBy: actorId,
   });
+
+  if (normalized.type === "multiple_choice") {
+    await applyAnswerKey(batch, db, id, normalized, actorId);
+  } else if (existing.type === "multiple_choice") {
+    // Tipe diganti dari pilihan ganda ke tipe lain — kunci lama sudah tidak relevan.
+    deleteQuestionAnswerKeyInBatch(batch, db, id);
+  }
+
+  await batch.commit();
 
   return {
     ...existing,
@@ -258,12 +316,45 @@ export async function updateQuestion(
     dimensi: normalized.dimensi,
     scaleMin: scale.scaleMin,
     scaleMax: scale.scaleMax,
-    options: resolveOptions(normalized.type),
+    options: nextOptions,
     sortOrder: nextSort,
     isActive: normalized.isActive,
     updatedAt: now,
     updatedBy: actorId,
   };
+}
+
+/**
+ * Menulis question_answer_keys di batch yang sama dengan soalnya, ditandai
+ * dengan periode aktif SAAT INI. Kalau soal ini dipakai lagi di periode
+ * berikutnya, admin perlu menyimpan ulang (edit lalu simpan) supaya
+ * periodeId kunci ikut pindah — kalau tidak, kunci lama tetap menunjuk ke
+ * periode lama dan test_sessions periode baru tidak akan bisa membukanya.
+ */
+async function applyAnswerKey(
+  batch: ReturnType<typeof writeBatch>,
+  db: ReturnType<typeof requireDb>,
+  questionId: string,
+  normalized: QuestionWriteInput,
+  actorId: string
+): Promise<void> {
+  if (normalized.type !== "multiple_choice" || !normalized.multipleChoiceCorrectValue) {
+    return;
+  }
+
+  const activePeriod = await getActiveAssessmentPeriod();
+  if (!activePeriod) {
+    throw new QuestionError(
+      "Tidak ada periode penilaian aktif. Aktifkan satu periode dulu sebelum menyimpan soal pilihan ganda."
+    );
+  }
+
+  saveQuestionAnswerKeyInBatch(batch, db, {
+    questionId,
+    correctValue: normalized.multipleChoiceCorrectValue,
+    periodeId: activePeriod.id,
+    actorId,
+  });
 }
 
 export async function setQuestionActive(
@@ -325,13 +416,22 @@ async function resolveScaleRange(type: QuestionType): Promise<{
   };
 }
 
-function resolveOptions(type: QuestionType): QuestionOption[] | null {
+function resolveOptions(
+  type: QuestionType,
+  multipleChoiceOptions?: MultipleChoiceOptionInput[]
+): QuestionOption[] | null {
   if (type === "yes_no") {
     return YES_NO_OPTIONS;
   }
 
   if (type === "multiple_choice") {
-    return [];
+    // score sengaja tidak diisi (null) — kebenaran jawaban hidup di
+    // question_answer_keys, bukan di sini, supaya tidak terbaca semua orang.
+    return (multipleChoiceOptions ?? []).map((item) => ({
+      value: item.value,
+      label: item.label,
+      score: null,
+    }));
   }
 
   return null;

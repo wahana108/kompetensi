@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ADMIN_ROUTES } from "@/components/admin/nav";
@@ -29,6 +30,7 @@ import {
   KOMPETENSI_DIMENSI_OPTIONS,
   getKompetensiDimensiLabel,
 } from "@/lib/services/kompetensi";
+import { getQuestionAnswerKey } from "@/lib/services/question-answer-key";
 import {
   NO_DIMENSI_VALUE,
   NO_RELATION_VALUE,
@@ -44,6 +46,19 @@ import type {
   QuestionType,
   Tusi,
 } from "@/types";
+
+type OptionRow = { id: string; label: string };
+
+function createOptionId(): string {
+  return `opt_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function emptyOptionRows(): OptionRow[] {
+  return [
+    { id: createOptionId(), label: "" },
+    { id: createOptionId(), label: "" },
+  ];
+}
 
 type QuestionFormProps = {
   mode: "create" | "edit";
@@ -91,6 +106,57 @@ export function QuestionForm({
   const [pending, setPending] = useState(false);
   const [formError, setFormError] = useState<string | null>(null);
 
+  const [options, setOptions] = useState<OptionRow[]>(() =>
+    initial?.type === "multiple_choice" && initial.options && initial.options.length > 0
+      ? initial.options.map((item) => ({ id: item.value, label: item.label }))
+      : emptyOptionRows()
+  );
+  const [correctOptionId, setCorrectOptionId] = useState<string | null>(null);
+  const [loadingAnswerKey, setLoadingAnswerKey] = useState(
+    initial?.type === "multiple_choice"
+  );
+
+  useEffect(() => {
+    if (mode !== "edit" || initial?.type !== "multiple_choice") {
+      setLoadingAnswerKey(false);
+      return;
+    }
+
+    let cancelled = false;
+    setLoadingAnswerKey(true);
+
+    void getQuestionAnswerKey(initial.id)
+      .then((key) => {
+        if (!cancelled) {
+          setCorrectOptionId(key?.correctValue ?? null);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setLoadingAnswerKey(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mode, initial]);
+
+  function addOption() {
+    setOptions((current) => [...current, { id: createOptionId(), label: "" }]);
+  }
+
+  function removeOption(id: string) {
+    setOptions((current) => current.filter((item) => item.id !== id));
+    setCorrectOptionId((current) => (current === id ? null : current));
+  }
+
+  function setOptionLabel(id: string, label: string) {
+    setOptions((current) =>
+      current.map((item) => (item.id === id ? { ...item, label } : item))
+    );
+  }
+
   const kompetensiItems = useMemo(
     () => [
       { value: NO_RELATION_VALUE, label: "Tidak ada" },
@@ -124,6 +190,19 @@ export function QuestionForm({
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+
+    if (type === "multiple_choice") {
+      const filled = options.filter((item) => item.label.trim().length > 0);
+      if (filled.length < 2) {
+        setFormError("Soal pilihan ganda butuh minimal 2 opsi.");
+        return;
+      }
+      if (!correctOptionId || !filled.some((item) => item.id === correctOptionId)) {
+        setFormError("Tandai satu opsi sebagai kunci jawaban sebelum menyimpan.");
+        return;
+      }
+    }
+
     setPending(true);
 
     const payload = {
@@ -139,6 +218,14 @@ export function QuestionForm({
           : (dimensi as KompetensiDimensi),
       sortOrder: Number(sortOrder),
       isActive,
+      multipleChoiceOptions:
+        type === "multiple_choice"
+          ? options
+              .filter((item) => item.label.trim().length > 0)
+              .map((item) => ({ value: item.id, label: item.label.trim() }))
+          : undefined,
+      multipleChoiceCorrectValue:
+        type === "multiple_choice" ? correctOptionId : undefined,
     };
 
     try {
@@ -234,7 +321,7 @@ export function QuestionForm({
                   ? "Jawaban memakai skala level kompetensi yang sudah dibuat."
                   : type === "yes_no"
                     ? "Jawaban tetap: Ya / Tidak."
-                    : "Pilihan ganda belum punya editor opsi. Tipe disimpan untuk tahap berikutnya."}
+                    : "Atur opsi jawaban dan kunci jawabannya di bawah."}
               </p>
             </div>
 
@@ -357,6 +444,63 @@ export function QuestionForm({
               </Select>
             </div>
           </div>
+
+          {type === "multiple_choice" ? (
+            <div className="space-y-2 rounded-lg border border-border p-3">
+              <div className="flex items-center justify-between">
+                <Label>Opsi jawaban</Label>
+                {loadingAnswerKey ? (
+                  <span className="text-xs text-muted-foreground">
+                    Memuat kunci jawaban...
+                  </span>
+                ) : null}
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Tandai satu opsi (radio) sebagai kunci jawaban. Minimal 2 opsi.
+              </p>
+              <div className="space-y-2">
+                {options.map((option, index) => (
+                  <div key={option.id} className="flex items-center gap-2">
+                    <input
+                      type="radio"
+                      name="soal-correct-option"
+                      aria-label={`Tandai opsi ${index + 1} sebagai kunci jawaban`}
+                      checked={correctOptionId === option.id}
+                      disabled={pending || loadingAnswerKey}
+                      onChange={() => setCorrectOptionId(option.id)}
+                    />
+                    <Input
+                      value={option.label}
+                      onChange={(event) => setOptionLabel(option.id, event.target.value)}
+                      placeholder={`Opsi ${index + 1}`}
+                      disabled={pending}
+                      className="flex-1"
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      disabled={pending || options.length <= 2}
+                      onClick={() => removeOption(option.id)}
+                    >
+                      <Trash2 />
+                      <span className="sr-only">Hapus opsi</span>
+                    </Button>
+                  </div>
+                ))}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={pending}
+                onClick={addOption}
+              >
+                <Plus />
+                Tambah opsi
+              </Button>
+            </div>
+          ) : null}
         </CardContent>
         <CardFooter className="justify-end gap-2">
           <Link

@@ -18,6 +18,19 @@ export const SELF_SCORE_WEIGHT = 0.3;
 export const GAP_TRAINING_THRESHOLD = 1.0;
 
 /**
+ * Konstanta di atas dipakai sebagai nilai DEFAULT saja. Bobot/ambang yang
+ * sebenarnya berasal dari system_parameters/global — dibaca SATU KALI di
+ * level halaman/hook pemanggil (mis. tna.ts, use-competency-score.ts) lalu
+ * dioper ke sini lewat argumen. File ini sendiri TIDAK membaca Firestore
+ * untuk parameter ini.
+ */
+export type CompetencyScoreWeights = {
+  bobotAtasan?: number;
+  bobotSelf?: number;
+  ambangButuhPelatihan?: number;
+};
+
+/**
  * Menghitung skor per kompetensi untuk satu pegawai pada satu periode.
  * Hanya jawaban self assessment dari soal bertipe likert yang dihitung —
  * soal yes_no/pilihan ganda memakai skala berbeda (mis. 0-1 untuk yes_no,
@@ -27,8 +40,13 @@ export const GAP_TRAINING_THRESHOLD = 1.0;
  */
 export async function computeEmployeeCompetencyScores(
   periodId: string,
-  employee: UserProfile
+  employee: UserProfile,
+  weights: CompetencyScoreWeights = {}
 ): Promise<CompetencyScore[]> {
+  const supervisorWeight = weights.bobotAtasan ?? SUPERVISOR_SCORE_WEIGHT;
+  const selfWeight = weights.bobotSelf ?? SELF_SCORE_WEIGHT;
+  const trainingThreshold = weights.ambangButuhPelatihan ?? GAP_TRAINING_THRESHOLD;
+
   if (!employee.jabatanId) {
     return [];
   }
@@ -90,7 +108,7 @@ export async function computeEmployeeCompetencyScores(
     // dievaluasi sebagai "belum butuh pelatihan" sesuai nilai aslinya.
     const rawActualLevel =
       supervisorScore !== null
-        ? supervisorScore * SUPERVISOR_SCORE_WEIGHT + selfScore * SELF_SCORE_WEIGHT
+        ? supervisorScore * supervisorWeight + selfScore * selfWeight
         : selfScore;
     const rawGap = requiredLevel - rawActualLevel;
 
@@ -101,7 +119,7 @@ export async function computeEmployeeCompetencyScores(
       requiredLevel,
       actualLevel: roundTo2(rawActualLevel),
       gap: roundTo2(rawGap),
-      butuhPelatihan: rawGap >= GAP_TRAINING_THRESHOLD,
+      butuhPelatihan: rawGap >= trainingThreshold,
     });
   }
 

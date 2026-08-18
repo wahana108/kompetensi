@@ -1,5 +1,10 @@
 import type { LucideIcon } from "lucide-react";
-import { ClipboardCheck, LayoutDashboard, UserCheck } from "lucide-react";
+import {
+  ClipboardCheck,
+  GraduationCap,
+  LayoutDashboard,
+  UserCheck,
+} from "lucide-react";
 
 export const DASHBOARD_ROUTES = {
   home: "/dashboard",
@@ -8,6 +13,7 @@ export const DASHBOARD_ROUTES = {
   penilaianAtasan: "/dashboard/penilaian-atasan",
   penilaianAtasanForm: (employeeId: string) =>
     `/dashboard/penilaian-atasan/${employeeId}`,
+  tesPengetahuan: "/dashboard/tes-pengetahuan",
 } as const;
 
 export type DashboardNavLink = {
@@ -35,6 +41,11 @@ export const DASHBOARD_NAV: DashboardNavLink[] = [
     label: "Penilaian Atasan",
     icon: UserCheck,
     requiresSubordinates: true,
+  },
+  {
+    href: DASHBOARD_ROUTES.tesPengetahuan,
+    label: "Tes Pengetahuan",
+    icon: GraduationCap,
   },
 ];
 
@@ -86,6 +97,13 @@ export function getDashboardPageMeta(pathname: string): {
     return {
       title: "Nilai Bawahan",
       description: "Penilaian atasan dan rekomendasi",
+    };
+  }
+
+  if (pathname === DASHBOARD_ROUTES.tesPengetahuan) {
+    return {
+      title: "Tes Pengetahuan",
+      description: "Tes opsional untuk validasi tambahan",
     };
   }
 

@@ -54,3 +54,11 @@ export type {
   ModeValidasiTes,
   SystemParameters,
 } from "./parameter";
+
+export type {
+  QuestionAnswerKey,
+  TestSession,
+  TestSessionAnswer,
+  TestSessionCompetencyScore,
+  TestSessionStatus,
+} from "./test";
