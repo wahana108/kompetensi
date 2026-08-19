@@ -47,6 +47,8 @@ export default function ParameterSistemPage() {
     useState<ModePendaftaran>("tertutup");
   const [domainDiizinkan, setDomainDiizinkan] = useState("");
   const [namaInstansi, setNamaInstansi] = useState("");
+  const [logoUrl, setLogoUrl] = useState("");
+  const [logoPreviewError, setLogoPreviewError] = useState(false);
   const [ambangValidasiTes, setAmbangValidasiTes] = useState("70");
   const [modeValidasiTes, setModeValidasiTes] =
     useState<ModeValidasiTes>("informasi");
@@ -69,6 +71,7 @@ export default function ParameterSistemPage() {
     setModePendaftaran(params.item.modePendaftaran);
     setDomainDiizinkan(params.item.domainDiizinkan.join(", "));
     setNamaInstansi(params.item.namaInstansi);
+    setLogoUrl(params.item.logoUrl);
     setAmbangValidasiTes(String(params.item.ambangValidasiTes));
     setModeValidasiTes(params.item.modeValidasiTes);
     setTemplatePromptSoal(params.item.templatePromptSoal);
@@ -123,6 +126,7 @@ export default function ParameterSistemPage() {
             .map((item) => item.trim())
             .filter(Boolean),
           namaInstansi,
+          logoUrl,
           ambangValidasiTes: Number(ambangValidasiTes),
           modeValidasiTes,
           templatePromptSoal,
@@ -284,6 +288,43 @@ export default function ParameterSistemPage() {
                   onChange={(event) => setNamaInstansi(event.target.value)}
                   disabled={pending}
                 />
+              </div>
+              <div className="space-y-1.5">
+                <Label htmlFor="logo-url">URL logo (opsional)</Label>
+                <div className="flex items-center gap-2">
+                  <Input
+                    id="logo-url"
+                    value={logoUrl}
+                    onChange={(event) => {
+                      setLogoUrl(event.target.value);
+                      setLogoPreviewError(false);
+                    }}
+                    placeholder="https://... — kosongkan kalau tidak ada logo"
+                    disabled={pending}
+                  />
+                  {logoUrl.trim() ? (
+                    logoPreviewError ? (
+                      <span
+                        className="flex size-8 shrink-0 items-center justify-center rounded-md border border-destructive/30 bg-destructive/10 text-[10px] text-destructive"
+                        title="URL logo tidak bisa dimuat"
+                      >
+                        ✕
+                      </span>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element -- URL bebas dari admin, tidak bisa di-allowlist untuk next/image
+                      <img
+                        src={logoUrl.trim()}
+                        alt="Pratinjau logo"
+                        className="size-8 shrink-0 rounded-md border object-contain"
+                        onError={() => setLogoPreviewError(true)}
+                      />
+                    )
+                  ) : null}
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Ditampilkan di header aplikasi. Kosongkan kalau tidak ada
+                  logo — tampilan tidak akan pecah walau URL salah/rusak.
+                </p>
               </div>
               <div className="space-y-1.5 sm:col-span-2">
                 <Label htmlFor="domain-diizinkan">

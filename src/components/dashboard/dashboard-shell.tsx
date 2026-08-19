@@ -13,6 +13,7 @@ import {
   getDashboardPageMeta,
   isDashboardNavActive,
 } from "@/components/dashboard/nav";
+import { BrandMark } from "@/components/shared/brand-mark";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 
@@ -48,13 +49,8 @@ export function DashboardShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <div className="flex h-14 items-center justify-between px-4">
-          <Link href="/dashboard" className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-semibold tracking-tight">
-              Pegawai
-            </span>
-            <span className="truncate text-xs text-muted-foreground">
-              TNA Kompetensi
-            </span>
+          <Link href="/dashboard" className="min-w-0">
+            <BrandMark title="Pegawai" />
           </Link>
           <Button
             type="button"

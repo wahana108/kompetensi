@@ -20,6 +20,8 @@ export interface SystemParameters {
   /** Domain email yang diizinkan mendaftar. Kosong = semua domain diizinkan. */
   domainDiizinkan: string[];
   namaInstansi: string;
+  /** URL gambar logo, ditampilkan di header aplikasi. Kosong = tidak ada logo. */
+  logoUrl: string;
   /** Untuk fitur tes berikutnya (belum dipakai). */
   ambangValidasiTes: number;
   modeValidasiTes: ModeValidasiTes;

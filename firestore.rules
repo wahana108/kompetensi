@@ -170,7 +170,11 @@ service cloud.firestore {
 
     match /questions/{id} {
       allow read: if isSignedIn();
-      allow write: if isAdmin();
+      // Hapus permanen (Tong Sampah) baru ada sejak fitur ini — beda dari
+      // aktif/nonaktif/buang (yang tetap update biasa, isAdmin()). Delete
+      // sungguhan dibatasi lebih ketat karena tidak bisa dibatalkan.
+      allow create, update: if isAdmin();
+      allow delete: if isSuperAdmin();
     }
 
     match /questionnaires/{id} {

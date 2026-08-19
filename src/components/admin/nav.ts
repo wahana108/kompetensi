@@ -7,6 +7,7 @@ import {
   ClipboardList,
   FileSpreadsheet,
   Gauge,
+  HelpCircle,
   LayoutDashboard,
   Medal,
   ScrollText,
@@ -39,6 +40,7 @@ export const ADMIN_ROUTES = {
   soal: "/admin/soal",
   soalNew: "/admin/soal/baru",
   soalImport: "/admin/soal/import",
+  soalTongSampah: "/admin/soal/tong-sampah",
   soalEdit: (id: string) => `/admin/soal/${id}`,
   standarKompetensi: "/admin/standar-kompetensi",
   periode: "/admin/periode",
@@ -96,6 +98,12 @@ export const ADMIN_NAV: AdminNavItem[] = [
     href: ADMIN_ROUTES.parameter,
     label: "Parameter Sistem",
     icon: Settings,
+  },
+  {
+    type: "link",
+    href: "/bantuan",
+    label: "Bantuan",
+    icon: HelpCircle,
   },
   {
     type: "group",
@@ -324,6 +332,13 @@ export function getAdminPageMeta(pathname: string): {
     return {
       title: "Impor Soal (AI)",
       description: "Rakit prompt, tempel hasil AI, pratinjau, lalu simpan",
+    };
+  }
+
+  if (pathname === ADMIN_ROUTES.soalTongSampah) {
+    return {
+      title: "Tong Sampah Soal",
+      description: "Soal yang dibuang — pulihkan atau hapus permanen",
     };
   }
 

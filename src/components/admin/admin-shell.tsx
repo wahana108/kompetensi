@@ -13,6 +13,7 @@ import {
   getAdminPageMeta,
   isAdminNavActive,
 } from "@/components/admin/nav";
+import { BrandMark } from "@/components/shared/brand-mark";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -71,13 +72,8 @@ export function AdminShell({ children }: { children: React.ReactNode }) {
         )}
       >
         <div className="flex h-14 items-center justify-between px-4">
-          <Link href="/admin" className="flex min-w-0 flex-col">
-            <span className="truncate text-sm font-semibold tracking-tight">
-              Admin Panel
-            </span>
-            <span className="truncate text-xs text-muted-foreground">
-              TNA Kompetensi
-            </span>
+          <Link href="/admin" className="min-w-0">
+            <BrandMark title="Admin Panel" />
           </Link>
           <Button
             type="button"

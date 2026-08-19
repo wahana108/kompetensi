@@ -2,6 +2,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   ClipboardCheck,
   GraduationCap,
+  HelpCircle,
   LayoutDashboard,
   UserCheck,
 } from "lucide-react";
@@ -46,6 +47,11 @@ export const DASHBOARD_NAV: DashboardNavLink[] = [
     href: DASHBOARD_ROUTES.tesPengetahuan,
     label: "Tes Pengetahuan",
     icon: GraduationCap,
+  },
+  {
+    href: "/bantuan",
+    label: "Bantuan",
+    icon: HelpCircle,
   },
 ];
 

@@ -1,4 +1,4 @@
-import type { Activatable, Auditable } from "./common";
+import type { Activatable, Auditable, IsoDateString } from "./common";
 import type { KompetensiDimensi } from "./competency";
 
 export type QuestionType = "likert" | "multiple_choice" | "yes_no" | "open_text";
@@ -22,6 +22,8 @@ export interface Question extends Activatable, Auditable {
   scaleMax: number | null;
   options: QuestionOption[] | null;
   sortOrder: number;
+  /** null = tidak dibuang. Terisi = di Tong Sampah, tersembunyi dari daftar utama & kuesioner. */
+  trashedAt: IsoDateString | null;
 }
 
 export interface Questionnaire extends Activatable, Auditable {

@@ -562,6 +562,7 @@ async function main() {
     modePendaftaran: "tertutup",
     domainDiizinkan: [],
     namaInstansi: "Instansi Uji Coba",
+    logoUrl: "",
     ambangValidasiTes: 70,
     modeValidasiTes: "informasi",
     templatePromptSoal: SEED_TEMPLATE_PROMPT_SOAL,

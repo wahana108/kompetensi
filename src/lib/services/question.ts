@@ -3,7 +3,10 @@ import {
   doc,
   getDoc,
   getDocs,
+  limit,
+  query,
   updateDoc,
+  where,
   writeBatch,
   type DocumentData,
 } from "firebase/firestore";
@@ -16,12 +19,15 @@ import {
   deleteQuestionAnswerKeyInBatch,
   saveQuestionAnswerKeyInBatch,
 } from "@/lib/services/question-answer-key";
+import { listAllTestSessions } from "@/lib/services/test-session";
 import { getTusiById } from "@/lib/services/tusi";
-import type { KompetensiDimensi, Question, QuestionOption, QuestionType } from "@/types";
+import type { KompetensiDimensi, Question, QuestionOption, QuestionType, UserRole } from "@/types";
 
 const SORT_STEP = 10;
 const DEFAULT_SCALE_MIN = 1;
 const DEFAULT_SCALE_MAX = 5;
+/** Batas item per writeBatch aksi massal (buang/pulih/hapus permanen) — aman di bawah limit 500 operasi/batch Firestore (hapus permanen = maks 2 operasi/soal). */
+const MAX_BULK_ACTION_SIZE = 200;
 
 export const NO_RELATION_VALUE = "__none__";
 const NO_DIMENSI_VALUE = "__none_dimensi__";
@@ -295,6 +301,7 @@ async function buildQuestionWrite(
     options: resolveOptions(normalized.type, normalized.multipleChoiceOptions),
     sortOrder: normalized.sortOrder ?? nextQuestionSortOrder(items),
     isActive: normalized.isActive,
+    trashedAt: null,
     createdAt: now,
     updatedAt: now,
     createdBy: actorId,
@@ -423,6 +430,167 @@ export async function setQuestionActive(
   });
 }
 
+/**
+ * Buang ke Tong Sampah: paksa isActive:false (soal otomatis hilang dari
+ * kuesioner lewat filter isActive yang sudah ada di mana-mana — self
+ * assessment, Tes Pengetahuan — tanpa menyentuh logika di sana) + tandai
+ * trashedAt. Dipecah per MAX_BULK_ACTION_SIZE item supaya aman di bawah
+ * limit 500 operasi/writeBatch Firestore.
+ */
+export async function trashQuestionsInBatch(
+  ids: string[],
+  actorId: string
+): Promise<void> {
+  if (ids.length === 0) {
+    return;
+  }
+
+  const db = requireDb();
+  const now = new Date().toISOString();
+
+  for (let offset = 0; offset < ids.length; offset += MAX_BULK_ACTION_SIZE) {
+    const chunk = ids.slice(offset, offset + MAX_BULK_ACTION_SIZE);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      batch.update(doc(db, COLLECTIONS.questions, id), {
+        trashedAt: now,
+        isActive: false,
+        updatedAt: now,
+        updatedBy: actorId,
+      });
+    }
+    await batch.commit();
+  }
+}
+
+/**
+ * Pulihkan dari Tong Sampah. Status aktif TIDAK dikembalikan otomatis —
+ * soal muncul kembali di daftar utama berstatus Nonaktif, admin
+ * mengaktifkan lagi secara sadar lewat aksi Aktifkan yang sudah ada.
+ */
+export async function restoreQuestionsInBatch(
+  ids: string[],
+  actorId: string
+): Promise<void> {
+  if (ids.length === 0) {
+    return;
+  }
+
+  const db = requireDb();
+  const now = new Date().toISOString();
+
+  for (let offset = 0; offset < ids.length; offset += MAX_BULK_ACTION_SIZE) {
+    const chunk = ids.slice(offset, offset + MAX_BULK_ACTION_SIZE);
+    const batch = writeBatch(db);
+    for (const id of chunk) {
+      batch.update(doc(db, COLLECTIONS.questions, id), {
+        trashedAt: null,
+        updatedAt: now,
+        updatedBy: actorId,
+      });
+    }
+    await batch.commit();
+  }
+}
+
+/**
+ * Dipakai BAIK untuk menentukan apakah tombol "Hapus Permanen" muncul di
+ * UI MAUPUN diverifikasi ulang di dalam deleteQuestionsPermanently()
+ * sebelum menulis apa pun — jangan bergantung pada state UI yang mungkin
+ * basi. Mengecek assessment_answers (semua tipe soal) dan, khusus
+ * pilihan_ganda, test_sessions (jawabannya tersimpan di dalam array
+ * dokumen, bukan koleksi terpisah, jadi discan di sisi klien).
+ */
+export async function hasQuestionBeenAnswered(
+  question: Pick<Question, "id" | "type">
+): Promise<boolean> {
+  const db = requireDb();
+
+  const answerSnap = await getDocs(
+    query(
+      collection(db, COLLECTIONS.assessmentAnswers),
+      where("questionId", "==", question.id),
+      limit(1)
+    )
+  );
+  if (!answerSnap.empty) {
+    return true;
+  }
+
+  if (question.type === "multiple_choice") {
+    const sessions = await listAllTestSessions();
+    return sessions.some((session) =>
+      session.answers.some((answer) => answer.questionId === question.id)
+    );
+  }
+
+  return false;
+}
+
+export type DeleteQuestionsPermanentlyResult = {
+  deletedCount: number;
+};
+
+/**
+ * Hapus permanen — HANYA super_admin, HANYA soal yang sudah ada di Tong
+ * Sampah, HANYA yang belum pernah dijawab siapa pun (diverifikasi ulang
+ * di sini, bukan percaya parameter dari UI). Semua-atau-tidak-sama-sekali:
+ * kalau SATU saja tidak memenuhi syarat, tidak ada yang terhapus. Soal
+ * pilihan ganda ikut menghapus question_answer_keys-nya di batch yang
+ * sama supaya tidak ada kunci yatim.
+ */
+export async function deleteQuestionsPermanently(
+  ids: string[],
+  actorRole: UserRole
+): Promise<DeleteQuestionsPermanentlyResult> {
+  if (actorRole !== "super_admin") {
+    throw new QuestionError("Hanya Super Admin yang boleh menghapus soal permanen.");
+  }
+
+  if (ids.length === 0) {
+    return { deletedCount: 0 };
+  }
+
+  const db = requireDb();
+  const allQuestions = await listQuestions();
+  const targets = ids.map((id) => {
+    const found = allQuestions.find((item) => item.id === id);
+    if (!found) {
+      throw new QuestionError("Salah satu soal tidak ditemukan.");
+    }
+    return found;
+  });
+
+  const notTrashed = targets.find((item) => !item.trashedAt);
+  if (notTrashed) {
+    throw new QuestionError(
+      `Soal "${notTrashed.text}" belum ada di Tong Sampah — buang dulu sebelum menghapus permanen.`
+    );
+  }
+
+  for (const target of targets) {
+    if (await hasQuestionBeenAnswered(target)) {
+      throw new QuestionError(
+        `Soal "${target.text}" sudah pernah dijawab pegawai — tidak bisa dihapus permanen.`
+      );
+    }
+  }
+
+  for (let offset = 0; offset < targets.length; offset += MAX_BULK_ACTION_SIZE) {
+    const chunk = targets.slice(offset, offset + MAX_BULK_ACTION_SIZE);
+    const batch = writeBatch(db);
+    for (const target of chunk) {
+      batch.delete(doc(db, COLLECTIONS.questions, target.id));
+      if (target.type === "multiple_choice") {
+        deleteQuestionAnswerKeyInBatch(batch, db, target.id);
+      }
+    }
+    await batch.commit();
+  }
+
+  return { deletedCount: targets.length };
+}
+
 export { NO_DIMENSI_VALUE };
 
 async function validateRelations(
@@ -532,6 +700,7 @@ function mapQuestion(id: string, data: DocumentData): Question {
     options: mapOptions(data.options),
     sortOrder: typeof data.sortOrder === "number" ? data.sortOrder : 0,
     isActive: data.isActive !== false,
+    trashedAt: toIso(data.trashedAt),
     createdAt: toIso(data.createdAt),
     updatedAt: toIso(data.updatedAt),
     createdBy: typeof data.createdBy === "string" ? data.createdBy : null,

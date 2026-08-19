@@ -63,6 +63,7 @@ export const DEFAULT_SYSTEM_PARAMETERS: SystemParameters = {
   modePendaftaran: "tertutup",
   domainDiizinkan: [],
   namaInstansi: "",
+  logoUrl: "",
   ambangValidasiTes: 70,
   modeValidasiTes: "informasi",
   templatePromptSoal: DEFAULT_TEMPLATE_PROMPT_SOAL,
@@ -108,6 +109,7 @@ export type SystemParametersWriteInput = {
   modePendaftaran: ModePendaftaran;
   domainDiizinkan: string[];
   namaInstansi: string;
+  logoUrl: string;
   ambangValidasiTes: number;
   modeValidasiTes: ModeValidasiTes;
   templatePromptSoal: string;
@@ -160,6 +162,7 @@ export function normalizeSystemParametersInput(
   );
 
   const namaInstansi = input.namaInstansi.trim();
+  const logoUrl = input.logoUrl.trim();
 
   const ambangValidasiTes = Number(input.ambangValidasiTes);
   if (!Number.isFinite(ambangValidasiTes) || ambangValidasiTes < 0) {
@@ -202,6 +205,7 @@ export function normalizeSystemParametersInput(
     modePendaftaran: input.modePendaftaran,
     domainDiizinkan,
     namaInstansi,
+    logoUrl,
     ambangValidasiTes,
     modeValidasiTes: input.modeValidasiTes,
     templatePromptSoal,
@@ -286,6 +290,7 @@ function mapSystemParameters(data: DocumentData): SystemParameters {
       typeof data.namaInstansi === "string"
         ? data.namaInstansi
         : DEFAULT_SYSTEM_PARAMETERS.namaInstansi,
+    logoUrl: typeof data.logoUrl === "string" ? data.logoUrl : DEFAULT_SYSTEM_PARAMETERS.logoUrl,
     ambangValidasiTes:
       typeof data.ambangValidasiTes === "number"
         ? data.ambangValidasiTes

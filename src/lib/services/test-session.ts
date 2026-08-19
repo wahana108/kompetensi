@@ -78,6 +78,18 @@ export async function listTestSessionsForPeriod(
 }
 
 /**
+ * Semua periode sekaligus — dipakai admin untuk mengecek "apakah soal ini
+ * PERNAH dijawab di periode mana pun" sebelum menghapus permanen. `answers`
+ * adalah array di dalam dokumen (bukan koleksi terpisah), jadi tidak bisa
+ * di-query per questionId — scan di sisi klien setelah listing.
+ */
+export async function listAllTestSessions(): Promise<TestSession[]> {
+  const db = requireDb();
+  const snapshot = await getDocs(collection(db, COLLECTIONS.testSessions));
+  return snapshot.docs.map((item) => mapTestSession(item.id, item.data()));
+}
+
+/**
  * Alur 2 fase supaya kunci jawaban tidak pernah terbaca sebelum tes selesai:
  * (1) tulis jawaban mentah dengan status "submitted" dan skorPerKompetensi
  *     null — rule mengunci dokumen ini setelahnya (tidak bisa diubah lagi

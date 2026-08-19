@@ -10,7 +10,7 @@ import {
 } from "firebase/firestore";
 import { getClientDb } from "@/lib/firebase/client";
 import { COLLECTIONS } from "@/lib/firebase/collections";
-import type { QuestionAnswerKey, UserRole } from "@/types";
+import type { Question, QuestionAnswerKey, UserRole } from "@/types";
 
 /** Batas operasi per writeBatch Firestore. */
 const BATCH_WRITE_LIMIT = 500;
@@ -99,6 +99,27 @@ export function countStaleAnswerKeys(
   activePeriodId: string
 ): number {
   return keys.filter((key) => key.periodeId !== activePeriodId).length;
+}
+
+/**
+ * Soal pilihan ganda AKTIF (bukan Nonaktif, bukan di Tong Sampah) tapi
+ * tidak punya dokumen question_answer_keys sama sekali — tidak akan
+ * pernah bisa dinilai kalau dijawab. Dipakai untuk peringatan di
+ * /admin/soal, dihitung dari data yang sudah dimuat halaman itu (tidak
+ * ada query/mekanisme baru).
+ */
+export function findOrphanedActiveMultipleChoiceQuestions(
+  questions: Question[],
+  keys: QuestionAnswerKey[]
+): Question[] {
+  const keyIds = new Set(keys.map((key) => key.questionId));
+  return questions.filter(
+    (question) =>
+      question.type === "multiple_choice" &&
+      question.isActive &&
+      !question.trashedAt &&
+      !keyIds.has(question.id)
+  );
 }
 
 export type RefreshAnswerKeysResult = {

@@ -9,6 +9,7 @@ import {
   Plus,
   Search,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { isSuperAdmin } from "@/lib/auth/roles";
@@ -66,9 +67,11 @@ import {
   getQuestionTypeLabel,
   mapQuestionError,
   setQuestionActive,
+  trashQuestionsInBatch,
 } from "@/lib/services/question";
 import {
   countStaleAnswerKeys,
+  findOrphanedActiveMultipleChoiceQuestions,
   mapQuestionAnswerKeyError,
   refreshAnswerKeysToPeriod,
 } from "@/lib/services/question-answer-key";
@@ -95,12 +98,25 @@ export default function SoalListPage() {
   );
   const [refreshConfirmOpen, setRefreshConfirmOpen] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [trashTargetIds, setTrashTargetIds] = useState<string[] | null>(null);
+  const [trashing, setTrashing] = useState(false);
 
   const activePeriod = periods.items.find((item) => item.status === "active") ?? null;
   const staleKeyCount = activePeriod
     ? countStaleAnswerKeys(answerKeys.items, activePeriod.id)
     : 0;
   const canRefreshKeys = isSuperAdmin(profile?.role);
+
+  const nonTrashedItems = useMemo(
+    () => questions.items.filter((item) => !item.trashedAt),
+    [questions.items]
+  );
+  const trashedCount = questions.items.length - nonTrashedItems.length;
+  const orphanedQuestions = useMemo(
+    () => findOrphanedActiveMultipleChoiceQuestions(questions.items, answerKeys.items),
+    [questions.items, answerKeys.items]
+  );
 
   const kompetensiItems = useMemo(
     () => [
@@ -116,7 +132,7 @@ export default function SoalListPage() {
   const visibleItems = useMemo(
     () =>
       filterQuestions(
-        questions.items,
+        nonTrashedItems,
         kompetensi.items,
         tusi.items,
         query,
@@ -127,14 +143,14 @@ export default function SoalListPage() {
     [
       kompetensi.items,
       kompetensiFilter,
+      nonTrashedItems,
       query,
-      questions.items,
       status,
       tusi.items,
       type,
     ]
   );
-  const activeCount = questions.items.filter((item) => item.isActive).length;
+  const activeCount = nonTrashedItems.filter((item) => item.isActive).length;
   const loading = questions.loading || kompetensi.loading || tusi.loading;
   const error = questions.error ?? kompetensi.error ?? tusi.error;
 
@@ -186,6 +202,48 @@ export default function SoalListPage() {
     }
   }
 
+  function toggleSelected(id: string) {
+    setSelectedIds((current) =>
+      current.includes(id) ? current.filter((item) => item !== id) : [...current, id]
+    );
+  }
+
+  function toggleSelectAllVisible() {
+    const visibleIds = visibleItems.map((item) => item.id);
+    const allSelected = visibleIds.every((id) => selectedIds.includes(id));
+    setSelectedIds((current) =>
+      allSelected
+        ? current.filter((id) => !visibleIds.includes(id))
+        : Array.from(new Set([...current, ...visibleIds]))
+    );
+  }
+
+  async function handleTrashConfirmed() {
+    if (!profile || !trashTargetIds || trashTargetIds.length === 0) {
+      return;
+    }
+
+    setTrashing(true);
+
+    try {
+      await trashQuestionsInBatch(trashTargetIds, profile.id);
+      toast.success(
+        trashTargetIds.length === 1
+          ? "Soal dibuang ke Tong Sampah."
+          : `${trashTargetIds.length} soal dibuang ke Tong Sampah.`
+      );
+      setSelectedIds((current) =>
+        current.filter((id) => !trashTargetIds.includes(id))
+      );
+      await questions.reload();
+    } catch (trashError) {
+      toast.error(mapQuestionError(trashError));
+    } finally {
+      setTrashing(false);
+      setTrashTargetIds(null);
+    }
+  }
+
   return (
     <div className="space-y-4">
       <Card>
@@ -212,6 +270,18 @@ export default function SoalListPage() {
                 ) : null}
               </Button>
             ) : null}
+            <Link
+              href={ADMIN_ROUTES.soalTongSampah}
+              className={buttonVariants({ variant: "outline" })}
+            >
+              <Trash2 />
+              Tong Sampah
+              {trashedCount > 0 ? (
+                <Badge variant="secondary" className="ml-0.5">
+                  {trashedCount}
+                </Badge>
+              ) : null}
+            </Link>
             <Link
               href={ADMIN_ROUTES.soalImport}
               className={buttonVariants({ variant: "outline" })}
@@ -251,6 +321,58 @@ export default function SoalListPage() {
                     Super Admin.
                   </p>
                 )}
+              </div>
+            </div>
+          ) : null}
+
+          {orphanedQuestions.length > 0 ? (
+            <div className="flex items-start gap-2 rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+              <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+              <div className="flex-1 space-y-1.5">
+                <p>
+                  Ada {orphanedQuestions.length} soal pilihan ganda AKTIF
+                  yang tidak punya kunci jawaban — tidak akan bisa dinilai
+                  kalau dijawab. Buka & simpan ulang soalnya (pastikan satu
+                  opsi ditandai kunci jawaban), atau Buang kalau soal ini
+                  tidak lagi dipakai:
+                </p>
+                <ul className="list-disc space-y-0.5 pl-4">
+                  {orphanedQuestions.map((item) => (
+                    <li key={item.id}>
+                      <Link
+                        href={ADMIN_ROUTES.soalEdit(item.id)}
+                        className="underline"
+                      >
+                        {item.text}
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            </div>
+          ) : null}
+
+          {selectedIds.length > 0 ? (
+            <div className="flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+              <span>{selectedIds.length} soal dipilih</span>
+              <div className="flex gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setSelectedIds([])}
+                >
+                  Batalkan Pilihan
+                </Button>
+                <Button
+                  type="button"
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setTrashTargetIds([...selectedIds])}
+                >
+                  <Trash2 />
+                  Buang Terpilih
+                </Button>
               </div>
             </div>
           ) : null}
@@ -341,7 +463,7 @@ export default function SoalListPage() {
           <p className="text-xs text-muted-foreground">
             {loading
               ? "Memuat soal..."
-              : `${questions.items.length} soal • ${activeCount} aktif`}
+              : `${nonTrashedItems.length} soal • ${activeCount} aktif`}
           </p>
 
           {error ? (
@@ -355,11 +477,22 @@ export default function SoalListPage() {
               Memuat data...
             </p>
           ) : visibleItems.length === 0 ? (
-            <EmptyState hasData={questions.items.length > 0} />
+            <EmptyState hasData={nonTrashedItems.length > 0} />
           ) : (
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead className="w-8">
+                    <input
+                      type="checkbox"
+                      aria-label="Pilih semua yang tampil"
+                      checked={
+                        visibleItems.length > 0 &&
+                        visibleItems.every((item) => selectedIds.includes(item.id))
+                      }
+                      onChange={toggleSelectAllVisible}
+                    />
+                  </TableHead>
                   <TableHead>Urutan</TableHead>
                   <TableHead>Pertanyaan</TableHead>
                   <TableHead>Tipe</TableHead>
@@ -384,6 +517,14 @@ export default function SoalListPage() {
                       key={item.id}
                       className={cn(!item.isActive && "text-muted-foreground")}
                     >
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          aria-label={`Pilih ${item.text}`}
+                          checked={selectedIds.includes(item.id)}
+                          onChange={() => toggleSelected(item.id)}
+                        />
+                      </TableCell>
                       <TableCell className="tabular-nums">
                         {item.sortOrder}
                       </TableCell>
@@ -453,6 +594,14 @@ export default function SoalListPage() {
                                 Aktifkan
                               </DropdownMenuItem>
                             )}
+                            <DropdownMenuItem
+                              variant="destructive"
+                              disabled={busy}
+                              onClick={() => setTrashTargetIds([item.id])}
+                            >
+                              <Trash2 />
+                              Buang
+                            </DropdownMenuItem>
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>
@@ -538,6 +687,46 @@ export default function SoalListPage() {
               onClick={() => void handleRefreshKeys()}
             >
               {refreshing ? "Menyegarkan..." : "Segarkan Sekarang"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(trashTargetIds)}
+        onOpenChange={(open) => {
+          if (!open && !trashing) {
+            setTrashTargetIds(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Buang {trashTargetIds?.length ?? 0} soal ke Tong Sampah?
+            </DialogTitle>
+            <DialogDescription>
+              Soal akan hilang dari daftar utama dan dari kuesioner, tapi
+              datanya tetap tersimpan dan bisa dipulihkan dari Tong Sampah
+              kapan saja.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={trashing}
+              onClick={() => setTrashTargetIds(null)}
+            >
+              Batal
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={trashing}
+              onClick={() => void handleTrashConfirmed()}
+            >
+              {trashing ? "Membuang..." : "Buang"}
             </Button>
           </DialogFooter>
         </DialogContent>
