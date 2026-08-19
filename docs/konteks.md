@@ -1,8 +1,10 @@
 # Konteks Project Saat Ini
 
-**Update Terakhir**: 18 Agustus 2026
+**Update Terakhir**: 19 Agustus 2026
 
 ## Status Saat Ini
+> **Ringkas per 19 Agustus 2026**: aplikasi sudah **LIVE di produksi** (Firebase project `tna-blk-kesehatan`, Vercel `kompetensi-chi.vercel.app`). Seluruh modul inti — auth (email/password + Google + lupa password + verifikasi email), master data, Standar Kompetensi, Self Assessment, Penilaian Atasan, Bank Soal (manual + Impor AI), Tes Pengetahuan opsional, Rekap TNA, kontrol akses/undangan, Parameter Sistem, halaman Bantuan — **sudah selesai** dan sudah diuji lewat emulator. **Tahap saat ini: pengenalan/evaluasi oleh calon pengguna** (admin BLK mulai mencoba, belum masuk siklus penilaian rutin penuh) — bukan lagi tahap pengembangan fitur inti. Daftar lengkap utang teknis yang perlu diperhatikan sebelum pemakaian rutin skala penuh ada di bagian **"Utang Teknis (Ringkasan Terkonsolidasi)"** di bawah — baca itu dulu sebelum menjanjikan apa pun ke pengguna soal keamanan/keandalan.
+
 - Fondasi Next.js 15 + shadcn/ui + data model + Auth/Role sudah ada.
 - **Auth siap ditest lewat Firebase Emulator** (Auth + Firestore + UI).
 - **Admin Panel fondasi sudah ada**: layout (sidebar + header + konten) dipakai semua `/admin/*`.
@@ -19,9 +21,9 @@
 - **Tong Sampah Soal sudah ada** (`/admin/soal/tong-sampah`): Buang/Pulihkan/Hapus Permanen (massal + satu-satu), hapus permanen dijaga rules (`isSuperAdmin()`, baru) + verifikasi ulang "belum pernah dijawab" di kode. Peringatan "soal yatim" (pilihan ganda aktif tanpa kunci jawaban) juga ditambahkan di `/admin/soal`. Lihat bagian "Tong Sampah Soal" di bawah.
 - **Halaman `/bantuan` sudah ada** (semua pengguna login, isi disesuaikan role) dan **logo + nama instansi bisa ditampilkan di header aplikasi** lewat `system_parameters/global.logoUrl`. Lihat bagian "Bantuan, Logo & Tentang" di bawah.
 - **Aplikasi sudah LIVE di produksi** (Vercel: `kompetensi-chi.vercel.app`, Firestore project: `tna-blk-kesehatan`). `.env.example` dibuat berisi semua env var (kosong) — lihat `src/lib/firebase/env.ts` untuk daftar pastinya. Admin SDK (`admin.ts`) TIDAK dipakai app yang di-deploy (tidak diimpor dari `src/app` mana pun, tidak ada API route) — hanya untuk `scripts/*.ts` lokal.
-- **Insiden produksi ditemukan & diperbaiki**: pendaftaran mode "tertutup" gagal total (rollback akun Auth) kalau dokumen `user_invitations` dibuat manual lewat Firestore Console tanpa field `usedAt` — `firestore.rules` memakai `.data.usedAt == null` yang error (bukan `null`) kalau field itu TIDAK ADA. Diperbaiki jadi `.data.get('usedAt', null) == null` di semua tempat serupa. Lihat bagian "Insiden Produksi: usedAt Hilang" di bawah — **WAJIB DEPLOY ke produksi**, belum otomatis lewat commit ini.
+- **Insiden produksi ditemukan & diperbaiki**: pendaftaran mode "tertutup" gagal total (rollback akun Auth) kalau dokumen `user_invitations` dibuat manual lewat Firestore Console tanpa field `usedAt` — `firestore.rules` memakai `.data.usedAt == null` yang error (bukan `null`) kalau field itu TIDAK ADA. Diperbaiki jadi `.data.get('usedAt', null) == null` di semua tempat serupa. Lihat bagian "Insiden Produksi: usedAt Hilang" di bawah — **sudah di-deploy ke produksi**, dikonfirmasi aktif per 19 Agustus 2026.
 - **Lupa Kata Sandi sudah ada** (`/lupa-password`, ditautkan dari `/login`) — `sendPasswordResetEmail`, pesan sukses SAMA persis baik email terdaftar atau tidak (anti-enumerasi), catatan untuk pengguna Google. Lihat bagian "Lupa Password & Verifikasi Email" di bawah.
-- **Verifikasi Email untuk akun email/password sudah ada (lengkap, termasuk rules)** — `/verifikasi-email`, gerbang baru `GuardArea "verify-email"`, PLUS `userExists()` di `firestore.rules` sekarang mensyaratkan `request.auth.token.email_verified == true` (di-deploy setelah dikonfirmasi empiris tidak mengunci akun Google). Akun Google TIDAK terdampak (dibuktikan lewat sign-in Google sungguhan di emulator via fake-IdP, bukan asumsi — lihat bagian "Lupa Password & Verifikasi Email").
+- **Verifikasi Email untuk akun email/password sudah ada (lengkap, termasuk rules)** — `/verifikasi-email`, gerbang baru `GuardArea "verify-email"`, PLUS `userExists()` di `firestore.rules` sekarang mensyaratkan `request.auth.token.email_verified == true`. **Sudah di-deploy ke produksi dan dikonfirmasi tidak mengunci akun Google** (super_admin produksi login Google berhasil setelah deploy) — sesuai dugaan empiris di emulator via fake-IdP sebelum deploy. Lihat bagian "Lupa Password & Verifikasi Email".
 - `tsc --noEmit` dan `npm run lint` lulus 100% tanpa error.
 - Emulator sudah diverifikasi start di mesin ini (Java 21): Auth `:9099`, Firestore `:8080`, UI `:4000` merespons HTTP 200.
 
@@ -29,6 +31,24 @@ Baca dokumentasi dari:
 - `docs/project.md`
 - `docs/konteks.md`
 - `docs/SETUP-EMULATOR.md`
+
+## Utang Teknis (Ringkasan Terkonsolidasi)
+
+**Satu tempat berisi SEMUA utang teknis yang diketahui** — bagian lain di dokumen ini punya penjelasan lebih detail per topik (dirujuk di kolom "Detail"), tapi daftar ini dimaksudkan cukup dibaca sendiri tanpa perlu buka bagian lain kalau hanya butuh ringkasan dampak.
+
+**Akar penyebab bersama untuk 2 item pertama**: aplikasi ini sengaja **tidak punya backend** (tidak ada Cloud Functions, tidak ada API route Next.js — lihat `docs/project.md`) karena skalanya kecil (satu instansi, puluhan pegawai) tidak sepadan dengan biaya membangun & mengoperasikan backend terpisah. Ini keputusan sadar, bukan kelalaian — tapi konsekuensinya harus dipahami sebelum menjanjikan jaminan keamanan yang butuh verifikasi server-side.
+
+| # | Utang Teknis | Dampak Nyata | Detail |
+|---|---|---|---|
+| 1 | **Middleware belum verifikasi session cookie secara kriptografis** (`src/middleware.ts`) | Cookie `tna-auth`/`tna-role` cuma string biasa yang bisa diubah manual dari console browser. Middleware jadi murni UX (redirect cepat ke halaman yang benar), **bukan** batas keamanan sungguhan — tapi `firestore.rules` tetap menolak operasi yang tidak sah terlepas dari isi cookie, jadi tidak ada data yang benar-benar bocor akibat ini; yang bisa terjadi cuma "menipu" tampilan UI sesaat sebelum Firestore menolak permintaannya. | "Utang teknis: A5" di bawah |
+| 2 | **Penilaian Tes Pengetahuan dihitung di client** (`src/lib/services/test-session.ts`) | Rules memastikan skor cuma bisa ditulis SEKALI (transisi `null`→terisi) dan jawaban mentah terkunci permanen sejak submit — tapi rules Firestore tidak bisa memverifikasi angka skornya benar secara matematis (tidak bisa iterasi array + `get()` per elemen). Pegawai yang paham DevTools **secara teori** bisa menulis skor palsu satu kali (tidak bisa membaca kunci sebelum submit, tidak bisa mengubah jawaban mentahnya — tapi angka skor akhirnya sendiri tidak diverifikasi ulang server). | "Tes Pengetahuan & Validasi Tes" di bawah |
+| 3 | **Kunci jawaban pilihan ganda perlu "Segarkan" manual tiap periode penilaian baru** (`/admin/soal`, tombol "Segarkan Kunci Jawaban") | Gerbang baca kunci jawaban bersifat per-periode (`question_answer_keys.periodeId` harus cocok `test_sessions` periode aktif pembaca) — soal lama yang dipakai lagi TIDAK otomatis ikut pindah periode. Kalau Super Admin lupa menekan tombol ini setelah membuka periode baru, Tes Pengetahuan pegawai macet selamanya di "Menghitung..." dan tidak pernah selesai dinilai. Ada peringatan otomatis di halaman kalau ada kunci yang stale, tapi tetap bergantung admin memperhatikannya. | "Segarkan Kunci Jawaban (prosedur wajib per periode baru)" di bawah |
+| 4 | **Cache Firestore di IndexedDB bisa rusak per-browser di perangkat mobile tertentu** (Chrome Android, ditemukan di produksi 19 Agustus 2026) | Error "Database is closing/hidden" di halaman login, hanya di browser/perangkat yang kena — sembuh dengan hapus data browser, tapi pengguna awam tidak akan tahu harus melakukan itu sendiri, dan halaman Bantuan tidak terjangkau (di balik login). Belum ada penanganan di kode. | Bagian "Catatan / masalah" di atas |
+| 5 | **Tidak ada uji otomatis** (`package.json` tidak punya Jest/Vitest/Playwright atau script `test`) | Regresi hanya tertangkap lewat `tsc --noEmit` + `eslint` + pengujian manual/skrip sekali-pakai terhadap emulator (selalu dihapus setelah dipakai di sesi ini, tidak pernah masuk repo) — tidak ada jaring pengaman otomatis yang jalan sendiri di CI setiap perubahan kode. Untuk skala project ini belum jadi prioritas, tapi risikonya bertambah seiring makin banyak fitur (sekarang: master data, 2 mesin skor, 3 jalur auth, rules yang cukup rumit). | — (baru dicatat di sini, belum ada di tempat lain) |
+| 6 | **"Hanya Super Admin" untuk Segarkan Kunci Jawaban & Hapus Permanen Soal ditegakkan di lapisan aplikasi, bukan sepenuhnya di `firestore.rules`** | `question_answer_keys` write/delete di rules masih `isAdmin()` biasa (bukan `isSuperAdmin()`) — seorang admin biasa (bukan super_admin) yang menulis langsung ke Firestore di luar UI aplikasi secara teknis masih bisa menjalankan kedua aksi ini. `questions` delete (Hapus Permanen soal) SUDAH `isSuperAdmin()` di rules — cuma `question_answer_keys` yang belum. Bukan celah baru (perilaku rules ini sudah ada sejak awal), tapi belum ditutup rapat untuk dua aksi spesifik ini secara sengaja (mengetatkannya akan merusak alur ganti-tipe-soal yang sudah ada — lihat detail). | "Segarkan Kunci Jawaban" & "Tong Sampah Soal" di bawah |
+| 7 | **Nama field tidak konsisten: `periodId` vs `periodeId`** — `TestSession.periodId` (`src/types/test.ts`) memakai ejaan Inggris, `QuestionAnswerKey.periodeId` (file yang sama) memakai ejaan Indonesia, untuk konsep yang PERSIS SAMA (ID periode penilaian) | Murni kosmetik/kejelasan kode — TIDAK ada bug fungsional, kedua field dipakai benar sesuai namanya masing-masing di seluruh kode & rules. Risikonya cuma kebingungan pengembang baru yang menyangka keduanya harus sama lalu salah ketik field saat menambah kode baru. **SENGAJA TIDAK DIPERBAIKI** — mengganti nama field berarti migrasi data produksi (`test_sessions`/`question_answer_keys` yang sudah ada harus ditulis ulang), tidak sepadan untuk masalah yang murni kosmetik. Kalau menambah field baru yang serupa di masa depan, pakai satu ejaan yang konsisten (disarankan `periodId`, mengikuti nama collection `assessment_periods` dan field lain yang lebih banyak). | — |
+
+**Status deploy ke produksi (`tna-blk-kesehatan`)**: dua perbaikan `firestore.rules` (fix `usedAt` + syarat `email_verified`) sudah diuji lengkap di emulator DAN **dikonfirmasi sudah di-deploy ke produksi per 19 Agustus 2026** (setelah merge `feat/email-verification`) — lihat bagian "SUDAH DI-DEPLOY ke produksi" di bawah. Akses super_admin (Google) dikonfirmasi tetap utuh setelah deploy.
 
 ## Cara menjalankan tes Auth + Admin
 1. Pastikan Java 17+ terpasang (`java -version`).
@@ -357,12 +377,12 @@ Semua akses field langsung (`.data.field` / `get(ref).data.field`) di seluruh fi
 ### Diuji lewat emulator, Client SDK, fungsi ASLI (`registerWithEmail`, bukan reimplementasi) — 8 skenario, semua lolos
 Dokumen fixture dibuat presisi lewat Admin SDK (satu-satunya cara membuat dokumen TANPA field `usedAt` sama sekali — `createInvitation()` klien selalu menulis `null` eksplisit): (1) undangan `usedAt:null` eksplisit → daftar berhasil; (2) undangan TANPA field `usedAt` sama sekali (persis kasus produksi) → **daftar berhasil** (ini yang tadinya gagal); (3) **regresi**: undangan yang SUDAH `usedAt` terisi tetap ditolak dengan pesan yang sama; (4) kedua undangan (1)(2) benar tertandai `usedAt` setelah dipakai. Lanjut mengulang 4 uji keamanan kunci jawaban dari sesi sebelumnya — semua tetap lolos tanpa melemah: (a) belum submit tes → ditolak baca kunci; (b) sudah submit → berhasil baca kunci periode aktif; (c) kunci periode lain → tetap ditolak; (d) skor `test_sessions` yang sudah terisi tidak bisa ditimpa lagi. Akun Auth + dokumen uji dihapus, emulator di-reseed ulang ke state bersih setelahnya.
 
-### BELUM DI-DEPLOY ke produksi
-`firestore.rules` lokal sekarang berisi DUA perbaikan yang belum sampai ke produksi: (1) fix `usedAt` (`.get('field', default)`), (2) `email_verified` di `userExists()`. Keduanya di file yang sama, jadi **satu kali deploy** membawa keduanya sekaligus — **wajib** dijalankan manual, jangan sampai lupa:
+### SUDAH DI-DEPLOY ke produksi — dikonfirmasi 19 Agustus 2026
+`firestore.rules` sempat berisi DUA perbaikan yang menunggu deploy: (1) fix `usedAt` (`.get('field', default)`), (2) `email_verified` di `userExists()`. **Dikonfirmasi oleh pemilik produksi**: `firebase deploy --only firestore:rules --project tna-blk-kesehatan` sudah dijalankan setelah merge `feat/email-verification` — keduanya **sudah aktif di produksi**. Login super_admin (Google) diverifikasi masih utuh setelah deploy — sesuai dugaan di sesi sebelumnya (Google `email_verified` selalu `true` sejak sign-in, tidak mungkin ikut terkunci oleh perbaikan #2).
 ```
 firebase deploy --only firestore:rules --project tna-blk-kesehatan
 ```
-Sampai perintah ini dijalankan: (a) bug `usedAt` masih ada di produksi — pendaftaran tertutup untuk undangan baru yang dibuat manual lewat Console akan tetap gagal; (b) akun email/password yang BELUM verifikasi email TETAP punya hak role penuh di produksi (celah privilege-escalation dari undangan yang diklaim orang lain BELUM tertutup) — tapi ini tidak mendesak seperti (a) karena belum ada satu pun akun email/password di produksi saat ini (satu-satunya akun, super_admin, masuk lewat Google). Undangan yang sudah "diperbaiki manual" (ditambah `usedAt: null` lewat Console) tidak terpengaruh either way oleh perbaikan (a).
+Perintah di atas ditinggalkan sebagai referensi untuk deploy `firestore.rules` berikutnya kalau ada perubahan baru — bukan berarti masih perlu dijalankan untuk dua perbaikan yang disebut di atas.
 
 ## Lupa Password & Verifikasi Email — file terkait
 ```
@@ -445,18 +465,22 @@ Tidak ada tombol admin di UI untuk ini (di luar cakupan tugas — dicatat sebaga
     - Menambahkan alias rute `/assessment/:periodeId*` dan `/self-assessment/:periodeId*` yang me-redirect otomatis ke `/dashboard/penilaian/:periodeId*`.
 
 ## Yang belum dikerjakan
+Ini daftar **fitur yang belum dibangun** dan **cakupan pengujian manual yang belum dilakukan** — untuk **utang teknis** (keterbatasan arsitektural dengan dampak keamanan/keandalan), lihat bagian **"Utang Teknis (Ringkasan Terkonsolidasi)"** di dekat awal dokumen ini, itu satu-satunya sumber kebenaran untuk itu (daftar di bawah ini sengaja tidak mengulang isinya, cuma menaut).
+
 - Klik login/register/admin di browser pada sesi ini (emulator + UI belum diklik end-to-end untuk Jabatan/Pangkat)
-- Session cookie httpOnly + verifikasi kriptografis di middleware — lihat "Utang teknis: A5" di atas
-- Scaffold Cloud Functions
+- Session cookie httpOnly + verifikasi kriptografis di middleware — **utang teknis #1**, lihat "Utang Teknis (Ringkasan Terkonsolidasi)"
+- Scaffold Cloud Functions — **sengaja tidak dibuat**, bukan cuma belum sempat; lihat `docs/project.md` (Tech Stack sudah dikoreksi) dan akar penyebab di "Utang Teknis (Ringkasan Terkonsolidasi)"
 - Relasi Jabatan ↔ Unit Kerja (selain lewat data user)
 - Relasi TUSI ↔ Kompetensi (selain lewat soal)
 - Penilaian atasan per soal / per kompetensi (saat ini 3 dimensi; skor per kompetensi didapat lewat pemetaan `dimensi`, bukan input langsung per kompetensi)
 - Fitur Export Rekap TNA ke format Excel / PDF (opsional untuk pengembangan berikutnya)
 - `skalaMaksimum`/`labelSkala` di `system_parameters` belum dipakai di UI mana pun (form self/supervisor assessment masih hardcode skala 1-5 lewat `kompetensi_levels`, bukan dari parameter ini).
-- Penilaian sisi-server yang tidak bisa dikarang client untuk Tes Pengetahuan — lihat utang teknis di bagian "Tes Pengetahuan & Validasi Tes" (butuh Cloud Functions/Admin SDK, sama seperti A5).
+- Penilaian sisi-server yang tidak bisa dikarang client untuk Tes Pengetahuan — **utang teknis #2**, lihat "Utang Teknis (Ringkasan Terkonsolidasi)"
 - Halaman Parameter Sistem (`/admin/parameter`) dan Persetujuan Akun (`/admin/persetujuan-akun`) belum diklik manual di browser — baru diverifikasi lewat `tsc`, lint, dan skrip smoke test langsung ke `registerWithEmail()` (bukan lewat form React-nya).
+- Klik-tembus sungguhan di browser untuk alur Verifikasi Email (`/verifikasi-email`, tombol "Kirim Ulang"/"Saya Sudah Verifikasi") — sudah diverifikasi lewat logika guard murni + mekanika Auth emulator, tapi belum lewat browser sungguhan (ekstensi Chrome tidak tersedia saat fitur itu dibangun).
 
 ## Catatan / masalah
+- **MASALAH TERAMATI DI PRODUKSI (19 Agustus 2026)**: Chrome Android di satu perangkat gagal membuka aplikasi dengan error **"Database is closing/hidden"** di halaman login. Browser lain di perangkat yang sama (Samsung Internet, browser bawaan Vivo) normal, dan Chrome di perangkat lain juga normal — jadi bukan bug di kode, bersifat **per-browser, per-perangkat**. Sembuh setelah reset/hapus data Chrome di perangkat itu. **Dugaan penyebab**: cache Firestore di IndexedDB milik browser tersebut jadi tidak kompatibel setelah Chrome-nya diperbarui dari versi lama (Firestore client SDK memakai IndexedDB untuk persistence lokal; skema/versi IndexedDB internal bisa berubah antar versi SDK/browser, dan instance lama yang "macet"/setengah-tertutup bisa memicu error database-closing seperti ini). **Belum ditangani di kode.** Antisipasi untuk versi berikutnya: tangkap error inisialisasi Firestore (mis. bungkus `getClientDb()`/`initializeFirestore` dengan try/catch yang mendeteksi error kelas ini) dan tawarkan tombol **"Bersihkan data lokal & muat ulang"** di **halaman login** — bukan di `/bantuan`, karena halaman itu ada di balik login dan tidak terjangkau justru saat masalah ini terjadi (pengguna tidak bisa login sama sekali). Lihat juga bagian "Utang Teknis (Ringkasan Terkonsolidasi)" di bawah.
 - Firestore Emulator **wajib Java**. Tanpa Java, `npm run emulators` gagal.
 - Persistensi data emulator sudah aktif (`--import=./emulator-data --export-on-exit=./emulator-data`).
 - Warning Node `v20.18.2` vs `eslint-visitor-keys` tetap ada.
