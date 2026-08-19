@@ -2,6 +2,8 @@ import {
   createUserWithEmailAndPassword,
   deleteUser,
   GoogleAuthProvider,
+  sendEmailVerification,
+  sendPasswordResetEmail,
   signInWithEmailAndPassword,
   signInWithPopup,
   signOut,
@@ -320,8 +322,43 @@ export async function registerWithEmail(
   }
 
   const profile = await createProfileForNewAccount(credential.user);
+
+  // Dikirim SETELAH profil berhasil dibuat (bukan sebelum) — kalau
+  // createProfileForNewAccount gagal, akun sudah di-rollback (dihapus),
+  // jadi tidak ada gunanya mengirim tautan verifikasi untuk akun yang
+  // sudah tidak ada. Kegagalan kirim email SENGAJA tidak digagalkan ke
+  // pemanggil — pendaftaran tetap dianggap berhasil, pengguna masih bisa
+  // klik "Kirim Ulang" di halaman /verifikasi-email.
+  try {
+    await sendEmailVerification(credential.user);
+  } catch {
+    // Diabaikan — lihat komentar di atas.
+  }
+
   setAuthCookies(profile.role);
   return { user: credential.user, profile };
+}
+
+/**
+ * Tidak mengembalikan info apakah email terdaftar — pemanggil (halaman
+ * /lupa-password) SENGAJA menampilkan pesan yang sama persis baik email
+ * ditemukan atau tidak (menangkap kode "auth/user-not-found" secara
+ * khusus), supaya halaman ini tidak bisa dipakai menebak email pengguna
+ * mana yang punya akun.
+ */
+export async function sendPasswordReset(email: string): Promise<void> {
+  const auth = requireFirebaseAuth();
+  await sendPasswordResetEmail(auth, normalizeEmail(email));
+}
+
+/** Dipakai tombol "Kirim Ulang" di /verifikasi-email — akun yang sedang login saja. */
+export async function resendEmailVerification(): Promise<void> {
+  const user = getClientAuthUser();
+  if (!user) {
+    throw new RegistrationError("Sesi tidak ditemukan. Silakan masuk ulang.");
+  }
+
+  await sendEmailVerification(user);
 }
 
 export async function signOutCurrentUser() {

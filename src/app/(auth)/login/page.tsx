@@ -120,7 +120,15 @@ function LoginForm() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="password">Kata sandi</Label>
+              <div className="flex items-center justify-between">
+                <Label htmlFor="password">Kata sandi</Label>
+                <Link
+                  href="/lupa-password"
+                  className="text-xs text-muted-foreground underline underline-offset-4"
+                >
+                  Lupa kata sandi?
+                </Link>
+              </div>
               <Input
                 id="password"
                 name="password"

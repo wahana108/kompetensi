@@ -14,8 +14,20 @@ service cloud.firestore {
     // role di mana pun (isAdmin/isSuperAdmin/isModerator). Akun "pending"
     // atau "nonaktif" kehilangan seluruh hak admin walau role-nya masih
     // tersimpan di dokumen.
+    // email_verified WAJIB true untuk hak berbasis role (isAdmin/isSuperAdmin/
+    // isModerator, lewat hasRole() di bawah). Google selalu true sejak awal
+    // sign-in (dibuktikan lewat sign-in Google sungguhan di emulator, bukan
+    // asumsi). Ini SENGAJA tidak ditambahkan ke hasUsableInvitation() —
+    // menambahkannya di sana akan menggagalkan setiap pendaftaran
+    // email/password tertutup (email_verified pasti false persis saat
+    // request create users/{uid} terjadi, sebelum pengguna sempat klik
+    // tautan verifikasi). Undangan tetap tertandai terpakai seperti biasa;
+    // yang dikunci di sini murni PEMAKAIAN privilege role-nya.
     function userExists() {
-      return isSignedIn() && exists(userPath()) && userData().status == 'aktif';
+      return isSignedIn()
+        && exists(userPath())
+        && userData().get('status', null) == 'aktif'
+        && request.auth.token.email_verified == true;
     }
 
     function userData() {
@@ -23,7 +35,7 @@ service cloud.firestore {
     }
 
     function hasRole(roles) {
-      return userExists() && userData().role in roles;
+      return userExists() && userData().get('role', null) in roles;
     }
 
     function isAdmin() {
@@ -45,7 +57,7 @@ service cloud.firestore {
     function isSupervisorOf(employeeId) {
       return isSignedIn()
         && exists(/databases/$(database)/documents/users/$(employeeId))
-        && get(/databases/$(database)/documents/users/$(employeeId)).data.supervisorId == request.auth.uid;
+        && get(/databases/$(database)/documents/users/$(employeeId)).data.get('supervisorId', null) == request.auth.uid;
     }
 
     function invitationRef(email) {
@@ -54,10 +66,16 @@ service cloud.firestore {
 
     // Mode pendaftaran "tertutup": undangan cocok kalau ada, belum dipakai,
     // dan role yang diminta sama persis dengan yang diundang admin.
+    // PENTING: pakai .get('field', null), BUKAN .data.field langsung — field
+    // yang TIDAK ADA di dokumen (mis. undangan dibuat manual lewat Firestore
+    // Console tanpa mengisi usedAt) membuat .data.field error saat dievaluasi,
+    // bukan mengembalikan null, sehingga seluruh kondisi dianggap false
+    // (ditolak). Insiden nyata: undangan produksi tanpa field usedAt membuat
+    // pendaftaran gagal total lalu di-rollback. Lihat konteks.md.
     function hasUsableInvitation(email, role) {
       return exists(invitationRef(email))
-        && get(invitationRef(email)).data.usedAt == null
-        && get(invitationRef(email)).data.role == role;
+        && get(invitationRef(email)).data.get('usedAt', null) == null
+        && get(invitationRef(email)).data.get('role', null) == role;
     }
 
     function isOwnInvitation(email) {
@@ -85,7 +103,7 @@ service cloud.firestore {
 
     match /users/{userId} {
       allow read: if isOwner(userId) || isAdmin() || isModerator()
-        || (isSignedIn() && resource.data.supervisorId == request.auth.uid);
+        || (isSignedIn() && resource.data.get('supervisorId', null) == request.auth.uid);
       // Dua jalur pendaftaran mandiri (client menulis dokumennya sendiri):
       // 1. Mode "terbuka" (atau tanpa undangan cocok): role dipaksa 'pegawai',
       //    status dipaksa 'pending' — tidak bisa self-elevate.
@@ -128,7 +146,7 @@ service cloud.firestore {
       allow update: if isAdmin()
         || (
           isOwnInvitation(email)
-          && resource.data.usedAt == null
+          && resource.data.get('usedAt', null) == null
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedAt'])
         );
     }

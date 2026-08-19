@@ -34,7 +34,7 @@ function AuthGateInner({
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
-  const { profile, loading, configured, error } = useAuth();
+  const { profile, emailVerified, loading, configured, error } = useAuth();
 
   useEffect(() => {
     if (loading) {
@@ -52,7 +52,7 @@ function AuthGateInner({
       return;
     }
 
-    const result = resolveAreaGuard(area, profile);
+    const result = resolveAreaGuard(area, profile, emailVerified);
     if (result.ok) {
       return;
     }
@@ -70,7 +70,7 @@ function AuthGateInner({
     }
 
     router.replace(result.redirectTo);
-  }, [area, configured, loading, pathname, profile, router, searchParams]);
+  }, [area, configured, emailVerified, loading, pathname, profile, router, searchParams]);
 
   if (!configured && area !== "guest") {
     return <StatusMessage>Firebase belum dikonfigurasi.</StatusMessage>;
@@ -84,7 +84,7 @@ function AuthGateInner({
     return <StatusMessage>{error}</StatusMessage>;
   }
 
-  const result = resolveAreaGuard(area, profile);
+  const result = resolveAreaGuard(area, profile, emailVerified);
   if (!result.ok) {
     return <StatusMessage>Mengalihkan...</StatusMessage>;
   }

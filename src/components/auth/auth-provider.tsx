@@ -29,12 +29,26 @@ type AuthContextValue = {
   user: User | null;
   profile: UserProfile | null;
   session: AuthSession | null;
+  /**
+   * Dari Firebase Auth `User.emailVerified` (bukan field Firestore).
+   * Selalu true untuk akun Google. Dipakai AuthGate menggerbang
+   * /verifikasi-email — lihat guards.ts.
+   */
+  emailVerified: boolean;
   loading: boolean;
   configured: boolean;
   error: string | null;
   signInWithEmail: typeof signInWithEmail;
   signInWithGoogle: typeof signInWithGoogle;
   registerWithEmail: typeof registerWithEmail;
+  /**
+   * Firebase Auth TIDAK memantau perubahan emailVerified secara realtime
+   * (beda tab/beda perangkat, klik tautan verifikasi tidak memicu event
+   * apa pun di sesi ini) — harus diminta manual lewat User.reload().
+   * Ini murni MEMBACA ulang status dari Auth SDK, tidak menulis apa pun
+   * ke Firestore, jadi tidak menambah "penulis profil" baru.
+   */
+  refreshEmailVerification: () => Promise<void>;
   signOut: () => Promise<void>;
 };
 
@@ -44,6 +58,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const configured = isFirebaseConfigured();
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
+  const [emailVerified, setEmailVerified] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -78,12 +93,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!nextUser) {
         setUser(null);
         setProfile(null);
+        setEmailVerified(false);
         clearAuthCookies();
         setLoading(false);
         return;
       }
 
       setUser(nextUser);
+      setEmailVerified(nextUser.emailVerified);
       setLoading(true);
 
       const db = getClientDb();
@@ -132,7 +149,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await signOutCurrentUser();
     setUser(null);
     setProfile(null);
+    setEmailVerified(false);
     setError(null);
+  }, []);
+
+  const refreshEmailVerification = useCallback(async () => {
+    const auth = getClientAuth();
+    const current = auth?.currentUser;
+    if (!current) {
+      return;
+    }
+
+    await current.reload();
+    // Set dari primitive boolean (bukan objek User yang sama reference-nya
+    // walau sudah di-reload) supaya React pasti render ulang komponen yang
+    // membaca emailVerified — kalau cuma setUser(current) lagi, referensi
+    // objeknya sering tidak berubah dan re-render bisa tidak terpicu.
+    setEmailVerified(current.emailVerified);
   }, []);
 
   const value = useMemo<AuthContextValue>(
@@ -140,15 +173,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       profile,
       session: toAuthSession(profile),
+      emailVerified,
       loading,
       configured,
       error,
       signInWithEmail,
       signInWithGoogle,
       registerWithEmail,
+      refreshEmailVerification,
       signOut: handleSignOut,
     }),
-    [configured, error, handleSignOut, loading, profile, user]
+    [
+      configured,
+      emailVerified,
+      error,
+      handleSignOut,
+      loading,
+      profile,
+      refreshEmailVerification,
+      user,
+    ]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
